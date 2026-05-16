@@ -1,0 +1,19 @@
+# === PYTHON / BACKEND JUNK ===
+e-techhub-backend/venv/
+e-techhub-backend/.venv/
+**/__pycache__/
+*.pyc
+e-techhub-backend/.env
+
+# === NODE / FRONTEND JUNK ===
+e-techhub/node_modules/
+e-techhub/build/
+e-techhub/dist/
+e-techhub/.env.local
+e-techhub/.env.development.local
+e-techhub/.env.production.local
+
+# === SYSTEM JUNK ===
+.DS_Store
+.vscode/
+.idea/
