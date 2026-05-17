@@ -233,3 +233,95 @@ export const checkUserName = async (userId) => {
   if (!res.ok) throw new Error(result.detail || 'Pengguna tidak ditemukan');
   return result; // Mengembalikan objek { id, name, role }
 };
+
+// Menarik data profil (termasuk kyc_status dan projects_completed)
+export const getMitraProfile = async (mitraId) => {
+  const response = await fetch(`${BASE_URL}/mitra/${mitraId}/profile`);
+  if (!response.ok) throw new Error('Gagal mengambil profil mitra dari database');
+  return response.json();
+};
+// Tambahkan di bawah fungsi getMitraProfile Anda yang sudah ada
+export const updateMitraProfile = async (mitraId, profileData) => {
+  const response = await fetch(`${BASE_URL}/mitra/${mitraId}/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profileData)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengupdate profil');
+  return data;
+};
+// Fungsi mengambil proyek (mengirim mitra_id lewat body)
+export const takeMitraProject = async (projectId, mitraId) => {
+  const response = await fetch(`${BASE_URL}/mitra/jobs/${projectId}/take`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mitra_id: mitraId }) 
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengambil proyek');
+  return data;
+};
+
+
+// Menolak KTP (KYC)
+export const rejectMitraKyc = async (mitraId) => {
+  const response = await fetch(`${BASE_URL}/admin/kyc/${mitraId}/reject`, { method: 'PUT' });
+  if (!response.ok) throw new Error('Gagal menolak KTP mitra');
+  return response.json();
+};
+
+export const signClientContract = async (projectId, clientId) => {
+  // Ingat, kita mengirim clientId lewat query parameter (sesuai contoh di backend)
+  // atau Anda bisa merancang endpointnya memakai Pydantic body
+  const response = await fetch(`${BASE_URL}/client/contracts/${projectId}/sign?client_id=${clientId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menandatangani kontrak');
+  return data;
+};
+
+// Tambahkan di dalam src/services/api.js
+export const signMitraContract = async (projectId, mitraId) => {
+  const response = await fetch(`${BASE_URL}/mitra/projects/${projectId}/sign?mitra_id=${mitraId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menandatangani kontrak');
+  return data;
+};
+
+// Fungsi untuk melaporkan progres atau mengajukan UAT
+export const updateMitraProgress = async (projectId, mitraId, milestoneText) => {
+  const response = await fetch(`${BASE_URL}/mitra/projects/${projectId}/progress`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mitra_id: mitraId, milestone_text: milestoneText })
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengirim progres');
+  return data;
+};
+
+// Menyetujui UAT (Mencairkan dana ke Mitra)
+export const approveClientUat = async (clientId, contractId) => {
+  const response = await fetch(`${BASE_URL}/client/${clientId}/contracts/${contractId}/approve`, {
+    method: 'PUT'
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menyetujui UAT');
+  return data;
+};
+
+// Menolak UAT (Mengubah status menjadi Disputed/Sengketa)
+export const rejectClientUat = async (clientId, contractId) => {
+  const response = await fetch(`${BASE_URL}/client/${clientId}/contracts/${contractId}/reject`, {
+    method: 'PUT'
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menolak UAT');
+  return data;
+};

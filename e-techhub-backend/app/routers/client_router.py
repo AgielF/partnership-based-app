@@ -7,6 +7,7 @@ import uuid
 from decimal import Decimal
 from reportlab.pdfgen import canvas
 import io
+from datetime import datetime # DITAMBAHKAN AGAR TIDAK ERROR SAAT SIGN CLICK-WRAP
 
 from app.core.database import get_db
 from app.models import domain_models as models
@@ -14,7 +15,6 @@ from app.schemas import response_schemas as schemas
 
 router = APIRouter(prefix="/api/client", tags=["Client"])
 
-# --- Skema Input untuk POST Project ---
 # --- Skema Input untuk POST Project DIUPDATE ---
 class ProjectCreate(BaseModel):
     title: str
@@ -128,7 +128,7 @@ def create_new_project(client_id: str, project: ProjectCreate, db: Session = Dep
         service_type=project.service_type,
         budget=budget_decimal,
         description=project.description,
-        deadline_days=project.deadline_days, # Menyimpan Deadline
+        deadline_days=project.deadline_days,
         status="OPEN"
     )
     
@@ -138,16 +138,13 @@ def create_new_project(client_id: str, project: ProjectCreate, db: Session = Dep
         if not tag_clean:
             continue
             
-        # Cek apakah tag sudah pernah ada di database
         existing_tag = db.query(models.Tag).filter(models.Tag.tag_name == tag_clean).first()
         
-        # Jika belum ada, tambahkan tag baru ke tabel tags
         if not existing_tag:
             existing_tag = models.Tag(tag_name=tag_clean)
             db.add(existing_tag)
-            db.flush() # Segera proses agar ID tag didapatkan
+            db.flush()
             
-        # Hubungkan tag dengan proyek ini
         new_project.tags.append(existing_tag)
 
     db.add(new_project)
@@ -168,23 +165,35 @@ def create_new_project(client_id: str, project: ProjectCreate, db: Session = Dep
         db.rollback()
         raise HTTPException(status_code=400, detail="Gagal menyimpan ke database.")
 
-@router.get("/{client_id}/contracts", response_model=List[schemas.ContractDashboard])
+# --- RUTE GET CONTRACTS YANG BENAR (SUDAH DIGABUNGKAN) ---
+@router.get("/{client_id}/contracts")
 def get_client_contracts(client_id: str, db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.client_id == client_id).all()
+    
     result = []
     for proj in projects:
-        mitra_name = proj.mitra.name if proj.mitra else "Belum Ada Mitra"
-        escrow_formatted = f"Rp {proj.budget:,.0f}".replace(",", ".")
+        # Jika relasi DB belum diset sempurna, kembalikan ID mitra
+        mitra_name = proj.mitra.name if getattr(proj, 'mitra', None) else proj.mitra_id
+        
+        # PENTING: Response harus seragam dengan ekspektasi Frontend React
         result.append({
             "id": proj.id,
             "title": proj.title,
             "mitra": mitra_name,
-            "type": proj.service_type.capitalize(),
+            "type": proj.service_type,
             "status": proj.status,
-            "escrow": escrow_formatted,
-            "milestone": proj.current_milestone or "Menunggu Tahap 1"
+            "budget": float(proj.budget) if proj.budget else 0,
+            "deadline_days": proj.deadline_days,
+            
+            # KUNCI UNTUK MENAMPILKAN TEKS TERMINAL DI REACT
+            "current_milestone": proj.current_milestone 
         })
+        
     return result
+
+# ==========================================
+# 3. KONTRAK & BAST
+# ==========================================
 
 @router.put("/{client_id}/contracts/{contract_id}/approve")
 def approve_contract_uat(client_id: str, contract_id: str, db: Session = Depends(get_db)):
@@ -224,10 +233,32 @@ def approve_contract_uat(client_id: str, contract_id: str, db: Session = Depends
 
     # Update Status Proyek
     project.status = "COMPLETED"
-    project.current_milestone = "Selesai (BAST Diterbitkan)"
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] BAST Diterbitkan. Proyek Selesai."
     db.commit()
 
     return {"status": "success", "message": "UAT Disetujui, Dana Dicairkan ke Mitra"}
+
+# ==========================================
+# PENOLAKAN UAT / SENGKETA (DISPUTE) OLEH KLIEN
+# ==========================================
+@router.put("/{client_id}/contracts/{contract_id}/reject")
+def reject_contract_uat(client_id: str, contract_id: str, db: Session = Depends(get_db)):
+    # 1. Pastikan proyek milik Klien yang login
+    project = db.query(models.Project).filter(
+        models.Project.id == contract_id, 
+        models.Project.client_id == client_id
+    ).first()
+    
+    if not project or project.status != "MENUNGGU UAT":
+        raise HTTPException(status_code=400, detail="Kontrak tidak valid atau belum masuk tahap UAT")
+
+    # 2. Ubah status menjadi Sengketa (Disputed)
+    project.status = "DISPUTED"
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ❌ UAT DITOLAK KLIEN. Proyek masuk status Sengketa (Arbitrase Admin)."
+    
+    db.commit()
+
+    return {"status": "success", "message": "Proyek ditangguhkan. Admin akan meninjau sengketa ini."}
 
 @router.get("/{client_id}/contracts/{contract_id}/pdf")
 def generate_contract_pdf(client_id: str, contract_id: str, db: Session = Depends(get_db)):
@@ -254,9 +285,11 @@ def generate_contract_pdf(client_id: str, contract_id: str, db: Session = Depend
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(50, 640, "Pihak Pertama (Klien):")
     pdf.setFont("Helvetica", 12)
-    pdf.drawString(50, 620, project.client.name)
+    # Gunakan client_id jika relasi tabel belum ditarik
+    client_name = project.client.name if getattr(project, 'client', None) else project.client_id
+    pdf.drawString(50, 620, client_name)
     
-    mitra_name = project.mitra.name if project.mitra else "Menunggu Bursa Kerja"
+    mitra_name = project.mitra.name if getattr(project, 'mitra', None) else (project.mitra_id or "Menunggu Bursa Kerja")
     pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(300, 640, "Pihak Kedua (Mitra):")
     pdf.setFont("Helvetica", 12)
@@ -273,3 +306,24 @@ def generate_contract_pdf(client_id: str, contract_id: str, db: Session = Depend
     
     buffer.seek(0)
     return Response(content=buffer.getvalue(), media_type="application/pdf")
+
+# ==========================================
+# E-CONTRACT / PERSETUJUAN KLIEN
+# ==========================================
+@router.put("/contracts/{project_id}/sign")
+def sign_client_contract(project_id: str, client_id: str, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.client_id == client_id
+    ).first()
+
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyek atau kontrak tidak ditemukan.")
+
+    if project.status in ["COMPLETED", "CANCELLED"]:
+        raise HTTPException(status_code=400, detail="Kontrak sudah tidak bisa ditandatangani.")
+
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] Kontrak disetujui Klien via Click-Wrap."
+    
+    db.commit()
+    return {"status": "success", "message": "Click-Wrap Agreement berhasil disahkan secara hukum."}

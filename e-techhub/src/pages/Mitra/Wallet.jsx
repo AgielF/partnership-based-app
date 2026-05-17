@@ -2,7 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { getMitraWallet } from '../../services/api';
 
 export default function MitraWallet() {
-  const [wallet, setWallet] = useState({ available: 0, escrow: 0, history: [] });
+  // 1. Sesuaikan inisialisasi state persis dengan format JSON dari FastAPI
+  const [wallet, setWallet] = useState({ 
+    balance: 0, 
+    escrow_balance: 0, 
+    transactions: [] 
+  });
+  
   const mitraId = localStorage.getItem('user_id');
 
   useEffect(() => {
@@ -30,7 +36,8 @@ export default function MitraWallet() {
       <div className="grid lg:grid-cols-2 gap-8 mb-10">
         <div className="border-4 border-black p-8 bg-green-400 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
           <p className="text-sm font-black uppercase mb-2">SALDO BISA DITARIK (AVAILABLE)</p>
-          <p className="text-5xl font-black tracking-tighter">Rp {wallet.available.toLocaleString('id-ID')}</p>
+          {/* 2. Ubah walletData menjadi wallet.balance */}
+          <p className="text-5xl font-black tracking-tighter">Rp {(wallet?.balance || 0).toLocaleString('id-ID')}</p>
           <button className="mt-8 w-full bg-black text-white border-4 border-black py-4 font-black uppercase text-lg hover:bg-gray-800 transition active:translate-y-1">
             TARIK KE REKENING BANK
           </button>
@@ -41,7 +48,8 @@ export default function MitraWallet() {
             <span>DANA TERTENTU (ESCROW AKTIF)</span>
             <span className="w-3 h-3 bg-red-600 rounded-full animate-pulse"></span>
           </p>
-          <p className="text-5xl font-black tracking-tighter">Rp {wallet.escrow.toLocaleString('id-ID')}</p>
+          {/* 3. Ubah wallet.escrow menjadi wallet.escrow_balance */}
+          <p className="text-5xl font-black tracking-tighter">Rp {(wallet?.escrow_balance || 0).toLocaleString('id-ID')}</p>
           <p className="mt-4 text-xs font-bold uppercase">
             *Dana ini berasal dari DP Klien. Akan cair ke saldo Available setelah BAST Digital diterbitkan oleh sistem.
           </p>
@@ -51,17 +59,22 @@ export default function MitraWallet() {
       <div className="border-4 border-black p-6 bg-white">
         <h2 className="text-xl font-black uppercase border-b-4 border-black pb-2 mb-4">RIWAYAT SPLIT PAYMENT</h2>
         <div className="space-y-4">
-          {wallet.history.length === 0 ? (
+          {/* 4. Ubah wallet.history menjadi wallet.transactions */}
+          {wallet.transactions.length === 0 ? (
              <p className="font-bold">BELUM ADA RIWAYAT TRANSAKSI.</p>
-          ) : wallet.history.map((trx) => (
+          ) : wallet.transactions.map((trx) => (
             <div key={trx.id} className="flex justify-between items-center border-4 border-black p-4 hover:bg-gray-50">
               <div>
                 <p className="font-black uppercase">{trx.type}</p>
-                <p className="text-xs font-bold text-gray-500">{trx.date} | {trx.id}</p>
+                {/* Format tanggal agar lebih rapi jika data berbentuk ISO string */}
+                <p className="text-xs font-bold text-gray-500">
+                  {trx.date ? new Date(trx.date).toLocaleString('id-ID') : 'Waktu Tidak Diketahui'} | {trx.id}
+                </p>
               </div>
               <div className="text-right">
-                <p className={`font-black text-xl ${trx.amount.includes('+') ? 'text-green-600' : 'text-red-600'}`}>
-                  {trx.amount}
+                {/* 5. Evaluasi warna berdasarkan nilai angka mutasi (positif/negatif) */}
+                <p className={`font-black text-xl ${trx.amount > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {trx.amount > 0 ? '+' : '-'} Rp {Math.abs(trx.amount).toLocaleString('id-ID')}
                 </p>
                 <p className="text-xs font-bold uppercase bg-black text-white px-2 py-1 inline-block mt-1">
                   {trx.status}

@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List
 from decimal import Decimal
 from pydantic import BaseModel
 import uuid
+import os
+import glob
 
 from app.core.security import get_password_hash 
 from app.core.database import get_db
@@ -54,8 +57,34 @@ def create_super_admin(admin_data: AdminCreate, db: Session = Depends(get_db)):
     return {"status": "success", "message": "Super Admin berhasil dibuat!"}
 
 # ==========================================
-# PILAR 1: MANAJEMEN IDENTITAS (KYC)
+# PILAR 1: MANAJEMEN IDENTITAS (KYC) & KTP
 # ==========================================
+@router.get("/mitras")
+def get_all_mitras(db: Session = Depends(get_db)):
+    mitras = db.query(models.MitraProfile).join(models.User).all()
+    result = []
+    for m in mitras:
+        result.append({
+            "id": m.user_id,
+            "name": f"{m.user.name}",
+            "specialty_role": m.specialty_role,
+            "kyc_status": m.kyc_status
+        })
+    return result
+
+@router.get("/mitras/{mitra_id}/ktp")
+def get_mitra_ktp_image(mitra_id: str):
+    # Mencari file di folder lokal yang namanya berawalan ID Mitra
+    search_pattern = f"uploads/ktp/{mitra_id}_*.*"
+    files = glob.glob(search_pattern)
+    
+    if not files:
+        raise HTTPException(status_code=404, detail="KTP belum diunggah atau tidak ditemukan.")
+    
+    # Jika ada lebih dari satu (karena upload ulang), ambil file yang paling baru dibuat
+    latest_file = max(files, key=os.path.getctime)
+    return FileResponse(latest_file)
+
 @router.put("/kyc/{mitra_id}/verify")
 def verify_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
     mitra = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
@@ -64,6 +93,16 @@ def verify_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
     mitra.kyc_status = "VERIFIED"
     db.commit()
     return {"status": "success", "message": f"KYC Mitra {mitra_id} berhasil diverifikasi."}
+
+@router.put("/kyc/{mitra_id}/reject")
+def reject_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
+    mitra_prof = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
+    if not mitra_prof:
+        raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan.")
+    
+    mitra_prof.kyc_status = "REJECTED"
+    db.commit()
+    return {"status": "success", "message": "KTP ditolak. Mitra diinstruksikan untuk mengunggah ulang."}
 
 @router.put("/users/{user_id}/ban")
 def ban_user(user_id: str, db: Session = Depends(get_db)):
@@ -269,18 +308,6 @@ def update_system_setting(key: str, payload: SettingUpdate, db: Session = Depend
         setting.setting_value = payload.value
     db.commit()
     return {"status": "success", "message": f"Setting {key} diubah menjadi {payload.value}"}
-
-@router.get("/mitras")
-def get_all_mitras(db: Session = Depends(get_db)):
-    mitras = db.query(models.MitraProfile).join(models.User).all()
-    result = []
-    for m in mitras:
-        result.append({
-            "id": m.user_id,
-            "name": f"{m.user.name} ({m.specialty_role})",
-            "kyc_status": m.kyc_status
-        })
-    return result
 
 # ==========================================
 # FUNGSI INQUIRY (CEK NAMA PENGGUNA)

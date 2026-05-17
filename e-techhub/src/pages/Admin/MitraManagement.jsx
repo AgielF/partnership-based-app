@@ -1,109 +1,47 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Html5Qrcode } from 'html5-qrcode';
-import { getMitras, verifyMitraKyc, banUser } from '../../services/api';
+import React, { useState, useEffect } from 'react';
+import { getMitras, verifyMitraKyc, rejectMitraKyc, banUser } from '../../services/api';
 
 export default function AdminMitraManagement() {
   const [mitras, setMitras] = useState([]);
-  const [scanInput, setScanInput] = useState('');
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  
-  const scannerInputRef = useRef(null);
-  const html5QrCodeRef = useRef(null);
+  const [visibleKtp, setVisibleKtp] = useState({});
 
-  // 1. Tarik data dari database MySQL
   const fetchMitraData = async () => {
     try {
       const data = await getMitras();
       setMitras(data);
     } catch (error) {
-      console.error(error);
+      console.error("Gagal menarik data mitra", error);
     }
   };
 
   useEffect(() => {
     fetchMitraData();
-    return () => {
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        html5QrCodeRef.current.stop().catch(console.error);
-      }
-    };
   }, []);
 
-  // 2. Filter data berdasarkan status kepatuhan
-  const pendingMitras = mitras.filter(m => m.kyc_status === 'PENDING');
-  const verifiedMitras = mitras.filter(m => m.kyc_status === 'VERIFIED');
-  const nonActiveMitras = mitras.filter(m => m.kyc_status === 'BANNED' || m.kyc_status === 'REJECTED');
-
-  // 3. Fungsi Verifikasi HANYA MELALUI SCANNER
-  const executeKycVerification = async (mitraId) => {
-    const cleanId = mitraId.trim().toUpperCase();
-    if (!cleanId.startsWith('VND-')) {
-      alert("FORMAT QR SALAH: Barcode tidak dikenali sebagai entitas Mitra.");
-      return;
-    }
-    
-    // Cek apakah mitra tersebut ada dan statusnya PENDING
-    const targetMitra = mitras.find(m => m.id === cleanId);
-    if (!targetMitra) {
-      alert(`GAGAL: Mitra dengan ID ${cleanId} tidak ditemukan di database.`);
-      return;
-    }
-    if (targetMitra.kyc_status === 'BANNED') {
-      alert(`DITOLAK: Mitra ${cleanId} berstatus BLACKLIST dan tidak bisa diverifikasi ulang!`);
-      return;
-    }
-    if (targetMitra.kyc_status === 'VERIFIED') {
-      alert(`INFO: Mitra ${cleanId} sudah berstatus aktif/terverifikasi.`);
-      return;
-    }
-
-    try {
-      await verifyMitraKyc(cleanId);
-      alert(`[BUNYI BEEP] - KYC Mitra ${cleanId} BERHASIL DIVERIFIKASI VIA QR!`);
-      fetchMitraData();
-    } catch (e) { alert(`GAGAL MEMVERIFIKASI QR: ${e.message}`); }
-  };
-
-  const toggleCamera = async () => {
-    if (isCameraOpen) {
-      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
-        await html5QrCodeRef.current.stop();
-        html5QrCodeRef.current.clear();
+  const handleVerify = async (id, name) => {
+    if(window.confirm(`YAKIN TERIMA KTP: Sahkan akun milik ${name}?`)) {
+      try {
+        await verifyMitraKyc(id);
+        alert("BERHASIL: Akun Mitra telah diverifikasi dan aktif!");
+        fetchMitraData();
+      } catch (err) {
+        alert("Gagal memverifikasi akun.");
       }
-      setIsCameraOpen(false);
-    } else {
-      setIsCameraOpen(true);
-      setTimeout(() => {
-        const html5QrCode = new Html5Qrcode("reader");
-        html5QrCodeRef.current = html5QrCode;
-        html5QrCode.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          async (decodedText) => {
-            await html5QrCode.stop();
-            html5QrCode.clear();
-            setIsCameraOpen(false);
-            setScanInput(decodedText);
-            executeKycVerification(decodedText);
-          },
-          () => {}
-        ).catch((err) => {
-          alert(`GAGAL MENGAKSES KAMERA: ${err.message}`);
-          setIsCameraOpen(false);
-        });
-      }, 100);
     }
   };
 
-  const handleManualSubmit = (e) => {
-    e.preventDefault();
-    if (scanInput) {
-      executeKycVerification(scanInput);
-      setScanInput('');
+  const handleReject = async (id, name) => {
+    if(window.confirm(`YAKIN TOLAK KTP: Kembalikan status ${name} untuk unggah ulang?`)) {
+      try {
+        await rejectMitraKyc(id);
+        alert("DITOLAK: Mitra akan diminta mengunggah ulang KTP yang lebih jelas.");
+        fetchMitraData();
+      } catch (err) {
+        alert("Gagal menolak akun.");
+      }
     }
   };
 
-  // Fungsi Pemblokiran (Bisa dilakukan kapan saja: saat Pending maupun Verified)
   const handleBan = async (mitraId) => {
     if (window.confirm(`PERINGATAN: Anda akan memblokir Mitra ${mitraId}. Tindakan ini tidak dapat dibatalkan dari UI. Lanjutkan?`)) {
       try {
@@ -114,8 +52,16 @@ export default function AdminMitraManagement() {
     }
   };
 
+  const toggleKtp = (id) => {
+    setVisibleKtp(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const pendingMitras = mitras.filter(m => m.kyc_status === 'PENDING');
+  const verifiedMitras = mitras.filter(m => m.kyc_status === 'VERIFIED');
+  const nonActiveMitras = mitras.filter(m => m.kyc_status === 'BANNED' || m.kyc_status === 'REJECTED');
+
   return (
-    <div className="font-mono bg-white text-black min-h-full">
+    <div className="font-mono bg-white text-black min-h-full p-8">
       <header className="flex justify-between items-end border-b-8 border-black pb-4 mb-8">
         <div>
           <h1 className="text-4xl font-black uppercase tracking-tighter">MANAJEMEN MITRA (KYC)</h1>
@@ -123,56 +69,72 @@ export default function AdminMitraManagement() {
         </div>
       </header>
 
-      {/* MODUL SCANNER SEBAGAI SATU-SATUNYA PINTU MASUK VERIFIKASI */}
-      <div className="border-4 border-black p-6 bg-yellow-300 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mb-10 flex flex-col gap-6">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-black uppercase">SYSTEM SCANNER AKTIF</h2>
-            <p className="text-xs font-bold mt-1">Gunakan alat pemindai fisik atau kamera perangkat untuk memverifikasi Mitra</p>
-          </div>
-          <button onClick={toggleCamera} className={`px-6 py-3 font-black uppercase border-4 border-black transition shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none ${isCameraOpen ? 'bg-red-600 text-white' : 'bg-black text-white'}`}>
-            {isCameraOpen ? '❌ MATIKAN KAMERA' : '📷 BUKA KAMERA'}
-          </button>
-        </div>
-        {isCameraOpen && (
-          <div className="border-8 border-black bg-white p-4 flex justify-center items-center">
-             <div id="reader" className="w-full max-w-sm border-4 border-dashed border-gray-400"></div>
-          </div>
-        )}
-        <form onSubmit={handleManualSubmit} className="flex gap-2">
-          <div className="relative w-full">
-            <span className="absolute inset-y-0 left-0 flex items-center pl-4 text-xl font-black">⌨️</span>
-            <input ref={scannerInputRef} type="text" value={scanInput} onChange={(e) => setScanInput(e.target.value)} placeholder="TEMBAKKAN QR / KETIK ID MANUAL DI SINI..." className="w-full border-4 border-black p-4 pl-12 font-black uppercase text-xl bg-yellow-50 focus:outline-none focus:bg-white" />
-          </div>
-          <button type="submit" className="bg-black text-white px-8 font-black uppercase border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1">VALIDASI</button>
-        </form>
-      </div>
-
       <div className="space-y-12">
         {/* =========================================
             BAGIAN 1: ANTREAN VERIFIKASI (PENDING)
         ========================================= */}
         <div>
           <h3 className="text-2xl font-black uppercase bg-yellow-200 border-4 border-black p-3 mb-6 inline-block shadow-[4px_4px_0px_0px_rgba(0,0,0,1)]">
-            ⏳ ANTREAN VERIFIKASI BARU ({pendingMitras.length})
+            ⏳ ANTREAN REVIEW KTP ({pendingMitras.length})
           </h3>
+          
           {pendingMitras.length === 0 ? (
-            <p className="border-4 border-black border-dashed p-6 text-center font-bold text-gray-500 bg-gray-50 uppercase">Tidak ada pengajuan dokumen baru.</p>
+            <p className="border-4 border-black border-dashed p-6 text-center font-bold text-gray-500 bg-gray-50 uppercase">
+              TIDAK ADA ANTREAN KTP BARU.
+            </p>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-6">
               {pendingMitras.map((m) => (
-                <div key={m.id} className="border-4 border-black p-6 bg-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col md:flex-row justify-between items-center">
-                  <div>
-                    <h4 className="text-2xl font-black uppercase">{m.name}</h4>
-                    <p className="text-xs font-bold text-gray-500 uppercase mt-1">ID MITRA: {m.id}</p>
+                <div key={m.id} className="border-4 border-black p-6 bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+                  <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b-4 border-black pb-4 mb-4">
+                    <div>
+                      <h4 className="text-2xl font-black uppercase">{m.name || "NAMA BELUM DISET"}</h4>
+                      <p className="text-sm font-bold text-gray-600 uppercase mt-1">ID: {m.id} | ROLE: {m.specialty_role || "UMUM"}</p>
+                    </div>
+                    
+                    <div className="flex gap-2 mt-4 md:mt-0">
+                      <button 
+                        onClick={() => handleVerify(m.id, m.name)} 
+                        className="bg-green-500 text-white border-4 border-black px-4 py-2 font-black uppercase hover:bg-green-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1"
+                      >
+                        ✅ TERIMA (VALID)
+                      </button>
+                      <button 
+                        onClick={() => handleReject(m.id, m.name)} 
+                        className="bg-orange-500 text-white border-4 border-black px-4 py-2 font-black uppercase hover:bg-orange-600 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1"
+                      >
+                        ❌ TOLAK (BURAM)
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex gap-4 mt-4 md:mt-0 items-center">
-                    {/* INDIKATOR WAJIB SCAN (MENGGANTIKAN TOMBOL MANUAL) */}
-                    <span className="bg-yellow-100 border-2 border-black px-4 py-2 font-black uppercase text-xs tracking-widest animate-pulse">
-                      ⚠️ MENUNGGU SCAN QR
-                    </span>
-                    <button onClick={() => handleBan(m.id)} className="bg-red-600 text-white border-4 border-black px-6 py-2 font-black uppercase hover:bg-red-700 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1">REJECT / BAN</button>
+
+                  <div className="bg-gray-100 border-4 border-black border-dashed p-4 flex flex-col items-center justify-center">
+                    <button 
+                      onClick={() => toggleKtp(m.id)}
+                      className="bg-black text-white px-6 py-2 font-black uppercase text-sm hover:bg-gray-800 transition-colors"
+                    >
+                      {visibleKtp[m.id] ? "SEMBUNYIKAN FOTO KTP" : "📸 BUKA & PERIKSA FOTO KTP"}
+                    </button>
+
+                    {visibleKtp[m.id] && (
+                      <div className="mt-4 w-full flex justify-center border-t-4 border-black border-dashed pt-4">
+                        <img 
+                          src={`http://127.0.0.1:8000/api/admin/mitras/${m.id}/ktp`} 
+                          alt={`KTP ${m.name}`} 
+                          className="max-h-96 border-4 border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] object-contain"
+                          onError={(e) => {
+                            e.target.onerror = null;
+                            e.target.style.display = 'none';
+                            e.target.nextSibling.style.display = 'block';
+                          }}
+                        />
+                        <p className="hidden text-red-600 font-black uppercase bg-red-100 p-4 border-4 border-red-600 mt-4 text-center">
+                          ⚠️ GAMBAR KTP TIDAK DITEMUKAN / BELUM DIUNGGAH OLEH MITRA
+                        </p>
+                      </div>
+                    )}
                   </div>
+
                 </div>
               ))}
             </div>
@@ -194,9 +156,8 @@ export default function AdminMitraManagement() {
                 <div key={m.id} className="border-4 border-black p-6 bg-white shadow-[6px_6px_0px_0px_rgba(0,0,0,1)] flex flex-col md:flex-row justify-between items-center hover:bg-green-50 transition-colors">
                   <div>
                     <h4 className="text-2xl font-black uppercase">{m.name}</h4>
-                    <p className="text-xs font-bold text-gray-500 uppercase mt-1">ID MITRA: {m.id}</p>
+                    <p className="text-xs font-bold text-gray-500 uppercase mt-1">ID MITRA: {m.id} | ROLE: {m.specialty_role}</p>
                   </div>
-                  {/* TOMBOL BAN TETAP ADA JIKA MELANGGAR SLA DI KEMUDIAN HARI */}
                   <button onClick={() => handleBan(m.id)} className="bg-red-600 text-white border-4 border-black px-6 py-2 font-black uppercase hover:bg-red-700 mt-4 md:mt-0 shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1">
                     SUSPEND / BAN
                   </button>
@@ -223,7 +184,7 @@ export default function AdminMitraManagement() {
                     <h4 className="text-2xl font-black uppercase text-gray-600 line-through">{m.name}</h4>
                     <p className="text-xs font-bold text-gray-400 uppercase mt-1">ID MITRA: {m.id}</p>
                   </div>
-                  <span className="bg-black text-white px-4 py-2 font-black uppercase border-2 border-black text-xs">
+                  <span className={`px-4 py-2 font-black uppercase border-2 border-black text-xs ${m.kyc_status === 'REJECTED' ? 'bg-orange-200 text-orange-800' : 'bg-black text-white'}`}>
                     {m.kyc_status}
                   </span>
                 </div>

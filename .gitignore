@@ -17,3 +17,5 @@ e-techhub/.env.production.local
 .DS_Store
 .vscode/
 .idea/
+
+todo.txt

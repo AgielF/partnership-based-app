@@ -1,78 +1,201 @@
 import React, { useState, useEffect } from 'react';
-import { getMitraProjects } from '../../services/api';
+import { getMitraProjects, signMitraContract, updateMitraProgress } from '../../services/api';
 
 export default function MitraProjects() {
   const [projects, setProjects] = useState([]);
+  const [isProcessing, setIsProcessing] = useState(null);
+  
+  // State untuk menyimpan teks input progres dari masing-masing proyek
+  const [progressInputs, setProgressInputs] = useState({}); 
+  
   const mitraId = localStorage.getItem('user_id');
 
+  const fetchProjects = async () => {
+    if (!mitraId) return;
+    try {
+      const data = await getMitraProjects(mitraId);
+      setProjects(data);
+    } catch (error) {
+      console.error("Gagal menarik data proyek:", error);
+    }
+  };
+
   useEffect(() => {
-    const fetchProjects = async () => {
-      if (!mitraId) return;
-      try {
-        const data = await getMitraProjects(mitraId);
-        setProjects(data);
-      } catch (error) {
-        console.error(error);
-      }
-    };
     fetchProjects();
   }, [mitraId]);
 
+  // FUNGSI 1: SIGN KONTRAK
+  const handleSignContract = async (projectId, clientName) => {
+    const legalWarning = `PERINGATAN HUKUM (CLICK-WRAP AGREEMENT):\n\nDengan menekan OK, Anda mengikatkan diri secara hukum untuk menyelesaikan Proyek ID: ${projectId} milik Klien (${clientName}) sesuai tenggat waktu dan anggaran yang disepakati (Pasal 1320 KUHPerdata).\n\nApakah Anda siap mengesahkan dokumen SPK ini?`;
+    
+    if (window.confirm(legalWarning)) {
+      setIsProcessing(projectId);
+      try {
+        await signMitraContract(projectId, mitraId);
+        alert("SAH SECARA HUKUM: SPK telah ditandatangani secara digital. Form pelaporan progres kini terbuka!");
+        fetchProjects(); 
+      } catch (error) {
+        alert(`GAGAL: ${error.message}`);
+      } finally {
+        setIsProcessing(null);
+      }
+    }
+  };
+
+  // FUNGSI 2: KIRIM PROGRES / AJUKAN UAT
+  const handleSubmitProgress = async (projectId, isUat = false) => {
+    // Jika tombol UAT ditekan, gunakan teks bawaan. Jika tombol progres biasa, ambil dari input box.
+    const textToSubmit = isUat 
+        ? "PENGERJAAN SELESAI. MENGAJUKAN UAT / PENINJAUAN AKHIR KEPADA KLIEN." 
+        : progressInputs[projectId];
+
+    if (!textToSubmit || textToSubmit.trim() === '') {
+        return alert("Teks progres tidak boleh kosong!");
+    }
+
+    if (isUat && !window.confirm("YAKIN AJUKAN UAT? Status proyek akan terkunci dan beralih ke Klien/Admin untuk peninjauan akhir.")) {
+        return;
+    }
+
+    setIsProcessing(projectId);
+    try {
+      await updateMitraProgress(projectId, mitraId, textToSubmit);
+      alert(isUat ? "PENGAJUAN UAT BERHASIL TERKIRIM!" : "PROGRES BERHASIL DICATAT!");
+      
+      // Bersihkan form text input
+      setProgressInputs(prev => ({ ...prev, [projectId]: '' }));
+      fetchProjects(); 
+    } catch (error) {
+      alert(`GAGAL: ${error.message}`);
+    } finally {
+      setIsProcessing(null);
+    }
+  };
+
+  const handleInputChange = (projectId, text) => {
+    setProgressInputs(prev => ({ ...prev, [projectId]: text }));
+  };
+
   return (
-    <div className="min-h-screen bg-white p-8 font-mono text-black">
-      <div className="border-b-8 border-black pb-6 mb-8 flex justify-between items-end">
-        <div>
-          <h1 className="text-5xl font-black uppercase tracking-tighter">PROYEK & KONTRAK</h1>
-          <p className="text-sm font-bold uppercase mt-2 text-gray-600 tracking-widest">
-            MANAJEMEN SPK & PENGAJUAN UAT
-          </p>
-        </div>
+    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
+      <div className="border-b-8 border-black pb-6 mb-10">
+        <h1 className="text-5xl font-black uppercase tracking-tighter">RUANG KERJA (SPK)</h1>
+        <p className="text-sm font-bold text-gray-600 uppercase mt-2">LEGALITAS DOKUMEN & PELAPORAN PROGRES MITRA</p>
       </div>
 
       <div className="space-y-8">
         {projects.length === 0 ? (
-           <p className="font-bold border-4 border-black p-4 bg-gray-50">ANDA BELUM MENGAMBIL PROYEK APAPUN.</p>
-        ) : projects.map((project) => (
-          <div key={project.id} className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col md:flex-row">
-            <div className="p-6 flex-1 border-b-4 md:border-b-0 md:border-r-4 border-black">
-              <div className="flex justify-between items-start mb-4">
-                <h3 className="text-2xl font-black uppercase leading-tight">{project.title}</h3>
-                <span className={`px-3 py-1 text-xs font-black uppercase border-4 border-black ${project.status.includes('UAT') ? 'bg-yellow-300' : 'bg-white'}`}>
-                  {project.status}
-                </span>
-              </div>
-              <p className="font-bold text-sm uppercase text-gray-600 mb-6">KLIEN: {project.client} | ID: {project.id}</p>
-              
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase text-gray-500">Nilai Kontrak</p>
-                  <p className="text-lg font-black">{project.budget}</p>
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase text-gray-500">Tenggat Waktu</p>
-                  <p className="text-lg font-bold text-red-600">{project.deadline}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="p-6 bg-gray-50 w-full md:w-1/3 flex flex-col justify-center">
-              <p className="text-xs font-black uppercase mb-2">TARGET MILESTONE SAAT INI:</p>
-              <div className="bg-white border-2 border-black p-3 font-bold text-sm mb-4">
-                {project.description || "Tahap Implementasi"}
-              </div>
-              
-              {project.status === 'SEDANG DIKERJAKAN' ? (
-                <button className="w-full bg-blue-600 text-white border-4 border-black py-4 font-black uppercase hover:bg-blue-700 transition active:translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none">
-                  AJUKAN VALIDASI UAT
-                </button>
-              ) : (
-                <button disabled className="w-full bg-gray-300 text-gray-500 border-4 border-black py-4 font-black uppercase cursor-not-allowed">
-                  MENUNGGU KLIEN...
-                </button>
-              )}
-            </div>
+          <div className="border-4 border-black p-10 bg-gray-50 text-center font-black uppercase text-2xl">
+            TIDAK ADA PROYEK AKTIF DI RUANG KERJA ANDA.
           </div>
-        ))}
+        ) : projects.map((p) => {
+          
+          // Logika Evaluasi Status
+          const isAlreadySigned = p.current_milestone?.includes('disetujui Mitra') || p.status === 'MENUNGGU UAT' || p.status === 'COMPLETED';
+          const isWaitingUat = p.status === 'MENUNGGU UAT';
+          const isCompleted = p.status === 'COMPLETED';
+
+          return (
+            <div key={p.id} className="border-4 border-black bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col md:flex-row">
+              
+              {/* BAGIAN KIRI: INFORMASI PROYEK */}
+              <div className="md:w-1/3 border-b-4 md:border-b-0 md:border-r-4 border-black p-6 bg-yellow-300 flex flex-col justify-between">
+                <div>
+                  <span className="bg-black text-white px-3 py-1 text-xs font-black uppercase inline-block mb-4">
+                    {p.service_type || 'UMUM'}
+                  </span>
+                  <h2 className="text-3xl font-black uppercase tracking-tighter leading-none mb-2">{p.title}</h2>
+                  <p className="font-bold text-sm text-gray-800 uppercase mb-4">ID: {p.id}</p>
+                  
+                  <div className="space-y-2 text-sm font-bold border-t-4 border-black pt-4">
+                    <p>KLIEN: <span className="font-black">{p.client_id || 'RAHASIA'}</span></p>
+                    <p>NILAI: <span className="font-black text-xl">Rp {(p.budget || 0).toLocaleString('id-ID')}</span></p>
+                    <p>DEADLINE: <span className="font-black">{p.deadline_days || '-'} HARI</span></p>
+                  </div>
+                </div>
+              </div>
+
+              {/* BAGIAN KANAN: KENDALI WORKSPACE (SIGN & PROGRESS) */}
+              <div className="md:w-2/3 p-6 flex flex-col justify-between">
+                <div>
+                  <h3 className="text-lg font-black uppercase border-b-4 border-black pb-2 mb-4">STATUS LINI MASA PENGADAAN</h3>
+                  <div className={`p-4 border-4 border-black font-bold text-sm uppercase mb-6 ${isCompleted ? 'bg-green-300' : isWaitingUat ? 'bg-blue-300' : 'bg-gray-100'}`}>
+                     JEJAK AUDIT TERAKHIR: <br/> 
+                     <span className="text-lg font-black mt-1 block">{p.current_milestone || "MENUNGGU PERSETUJUAN"}</span>
+                  </div>
+                </div>
+
+                {/* AREA AKSI DINAMIS BERDASARKAN STATUS */}
+                <div className="mt-auto">
+                  
+                  {/* KONDISI 1: BELUM SIGN KONTRAK */}
+                  {!isAlreadySigned && !isCompleted && (
+                    <div className="bg-gray-50 border-4 border-black border-dashed p-4 text-center">
+                      <p className="text-sm font-bold uppercase mb-4 text-red-600">
+                        ⚠️ Anda belum bisa melaporkan progres sebelum kontrak hukum disetujui.
+                      </p>
+                      <button 
+                        onClick={() => handleSignContract(p.id, p.client_id)}
+                        disabled={isProcessing === p.id}
+                        className={`w-full text-white border-4 border-black py-4 font-black uppercase transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none ${
+                          isProcessing === p.id ? 'bg-gray-500 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
+                      >
+                        {isProcessing === p.id ? 'MEMPROSES LEGALITAS...' : '✍️ SIGN E-CONTRACT (CLICK-WRAP)'}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* KONDISI 2: SUDAH SIGN, SEDANG DIKERJAKAN */}
+                  {isAlreadySigned && !isWaitingUat && !isCompleted && (
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-black uppercase mb-2">LAPORKAN PROGRES HARIAN / MILESTONE:</label>
+                        <textarea 
+                          value={progressInputs[p.id] || ''}
+                          onChange={(e) => handleInputChange(p.id, e.target.value)}
+                          placeholder="Ketik progres pekerjaan Anda hari ini (Contoh: Fitur login sudah selesai dibuat...)"
+                          className="w-full border-4 border-black p-3 font-bold h-24 resize-none"
+                        ></textarea>
+                      </div>
+                      
+                      <div className="flex flex-col sm:flex-row gap-4">
+                        <button 
+                          onClick={() => handleSubmitProgress(p.id, false)}
+                          disabled={isProcessing === p.id}
+                          className="sm:w-1/2 bg-white text-black border-4 border-black py-3 font-black uppercase hover:bg-yellow-300 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
+                        >
+                          {isProcessing === p.id ? 'MENGIRIM...' : '📝 UPDATE PROGRES'}
+                        </button>
+                        
+                        <button 
+                          onClick={() => handleSubmitProgress(p.id, true)}
+                          disabled={isProcessing === p.id}
+                          className="sm:w-1/2 bg-black text-white border-4 border-black py-3 font-black uppercase hover:bg-gray-800 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
+                        >
+                          {isProcessing === p.id ? 'MEMPROSES...' : '🚀 AJUKAN UAT (SELESAI)'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* KONDISI 3: MENUNGGU UAT ATAU SELESAI (FORM DIKUNCI) */}
+                  {(isWaitingUat || isCompleted) && (
+                    <div className="flex flex-col sm:flex-row gap-4">
+                       <button disabled className="w-full bg-gray-300 text-gray-600 border-4 border-black py-4 font-black uppercase cursor-not-allowed">
+                          🔒 {isCompleted ? 'PROYEK TELAH SELESAI' : 'MENUNGGU VALIDASI UAT KLIEN'}
+                       </button>
+                       <button onClick={() => alert("Mengunduh SPK PDF...")} className="w-full bg-white text-black border-4 border-black py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100 active:translate-y-1 active:shadow-none">
+                          📄 UNDUH DOKUMEN SPK/BAST
+                       </button>
+                    </div>
+                  )}
+
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
