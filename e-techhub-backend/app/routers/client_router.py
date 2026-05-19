@@ -12,6 +12,8 @@ from datetime import datetime # DITAMBAHKAN AGAR TIDAK ERROR SAAT SIGN CLICK-WRA
 from app.core.database import get_db
 from app.models import domain_models as models
 from app.schemas import response_schemas as schemas
+from fastapi import Request
+import midtransclient
 
 router = APIRouter(prefix="/api/client", tags=["Client"])
 
@@ -23,6 +25,12 @@ class ProjectCreate(BaseModel):
     description: str
     deadline_days: int          
     tags: Optional[List[str]] = []
+
+snap = midtransclient.Snap(
+    is_production=False,
+    server_key='TARUH_SERVER_KEY_DISINI',
+    client_key='TARUH_SERVER_KEY_DISINI'
+)
 
 # ==========================================
 # 1. MANAJEMEN DOMPET & KEUANGAN
@@ -41,29 +49,94 @@ def get_client_wallet(client_id: str, db: Session = Depends(get_db)):
 @router.post("/{client_id}/topup/online")
 def topup_wallet_online(client_id: str, payload: dict, db: Session = Depends(get_db)):
     try:
-        amount = Decimal(str(payload.get("amount", 0)))
+        amount = int(Decimal(str(payload.get("amount", 0)))) # Midtrans butuh format integer
     except:
         raise HTTPException(status_code=400, detail="Format angka tidak valid")
         
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Nominal tidak valid")
+
+    # Ambil data user untuk info pelanggan di Midtrans
+    user = db.query(models.User).filter(models.User.id == client_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
         
-    wallet = db.query(models.Wallet).filter(models.Wallet.user_id == client_id).first()
-    if not wallet:
-        wallet = models.Wallet(user_id=client_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
-        db.add(wallet)
-        
-    wallet.balance += amount
-    
-    trx_id = f"TRX-PG-{uuid.uuid4().hex[:4].upper()}"
+    # 1. Buat Order ID & Catat Transaksi sebagai PENDING
+    trx_id = f"TRX-{uuid.uuid4().hex[:10].upper()}"
     new_trx = models.Transaction(
-        id=trx_id, user_id=client_id, transaction_type="TOP UP ONLINE (PAYMENT GATEWAY)",
-        amount=amount, status="SUCCESS"
+        id=trx_id, 
+        user_id=client_id, 
+        transaction_type="TOP UP ONLINE (MIDTRANS)",
+        amount=amount, 
+        status="PENDING" # Saldo BELUM bertambah
     )
     db.add(new_trx)
     db.commit()
     
-    return {"status": "success", "message": "Top-up berhasil", "new_balance": float(wallet.balance)}
+    # 2. Siapkan parameter untuk dikirim ke Midtrans
+    param = {
+        "transaction_details": {
+            "order_id": trx_id,
+            "gross_amount": amount
+        },
+        "customer_details": {
+            "first_name": user.name,
+            "email": user.email
+        }
+    }
+
+    try:
+        # 3. Minta Token Snap ke server Midtrans
+        transaction = snap.create_transaction(param)
+        return {
+            "status": "success", 
+            "message": "Token berhasil dibuat", 
+            "token": transaction['token']
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menghubungi Midtrans: {str(e)}")
+
+# ==========================================
+# 1.B. WEBHOOK (CRITICAL): Mendengarkan Notifikasi Midtrans
+# ==========================================
+@router.post("/midtrans/webhook")
+async def midtrans_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.json()
+    
+    order_id = payload.get('order_id')
+    transaction_status = payload.get('transaction_status')
+    fraud_status = payload.get('fraud_status')
+
+    # Cari transaksi di database
+    trx = db.query(models.Transaction).filter(models.Transaction.id == order_id).first()
+    if not trx:
+        return {"status": "ignored", "message": "Transaksi tidak ditemukan"}
+
+    # Jika sudah SUCCESS, hiraukan (menghindari double webhook)
+    if trx.status == 'SUCCESS':
+        return {"status": "ignored", "message": "Transaksi sudah diproses sebelumnya"}
+
+    # Analisis Status Midtrans
+    if transaction_status == 'capture' or transaction_status == 'settlement':
+        if fraud_status != 'challenge':
+            # PEMBAYARAN BERHASIL -> UPDATE STATUS DAN TAMBAH SALDO
+            trx.status = 'SUCCESS'
+            
+            wallet = db.query(models.Wallet).filter(models.Wallet.user_id == trx.user_id).first()
+            if not wallet:
+                wallet = models.Wallet(user_id=trx.user_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
+                db.add(wallet)
+            
+            wallet.balance += trx.amount
+            db.commit()
+            
+    elif transaction_status in ['cancel', 'deny', 'expire']:
+        # PEMBAYARAN GAGAL/EXPIRED
+        trx.status = 'FAILED'
+        db.commit()
+
+    return {"status": "ok"}
 
 @router.get("/{client_id}/transactions")
 def get_client_transactions(client_id: str, db: Session = Depends(get_db)):
