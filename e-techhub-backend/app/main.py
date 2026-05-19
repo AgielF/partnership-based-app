@@ -3,7 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.database import engine, Base
 
 # Import semua router
-from app.routers import admin_router, client_router, mitra_router, auth_router
+from app.routers import admin_router, client_router, mitra_router, auth_router, chat_router
+
 
 # Otomatis membuat tabel jika belum ada di database
 Base.metadata.create_all(bind=engine)
@@ -26,6 +27,7 @@ app.include_router(auth_router.router)
 app.include_router(admin_router.router)
 app.include_router(client_router.router)
 app.include_router(mitra_router.router)
+app.include_router(chat_router.router)
 
 @app.get("/")
 def health_check():

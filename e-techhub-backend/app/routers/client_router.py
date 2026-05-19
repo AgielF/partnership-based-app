@@ -24,6 +24,14 @@ class ProjectCreate(BaseModel):
     deadline_days: int          
     tags: Optional[List[str]] = []
 
+class MitraPublicProfile(BaseModel):
+    id: str
+    name_masked: str
+    specialty_role: str
+    rating: float
+    projects_completed: int
+    hourly_rate_or_fee: str
+
 # ==========================================
 # 1. MANAJEMEN DOMPET & KEUANGAN
 # ==========================================
@@ -172,14 +180,17 @@ def get_client_contracts(client_id: str, db: Session = Depends(get_db)):
     
     result = []
     for proj in projects:
-        # Jika relasi DB belum diset sempurna, kembalikan ID mitra
+        # Ambil nama mitra jika ada, jika tidak gunakan ID-nya sebagai fallback
         mitra_name = proj.mitra.name if getattr(proj, 'mitra', None) else proj.mitra_id
         
         # PENTING: Response harus seragam dengan ekspektasi Frontend React
         result.append({
             "id": proj.id,
             "title": proj.title,
-            "mitra": mitra_name,
+            
+            "mitra_id": proj.mitra_id,     # <-- UNTUK DITEMBAK KE API (Atasi Error 404)
+            "mitra": mitra_name,           # <-- UNTUK DITAMPILKAN DI LAYAR REACT SEBAGAI TEKS
+            
             "type": proj.service_type,
             "status": proj.status,
             "budget": float(proj.budget) if proj.budget else 0,
@@ -224,6 +235,15 @@ def approve_contract_uat(client_id: str, contract_id: str, db: Session = Depends
             id=f"TRX-IN-{uuid.uuid4().hex[:4].upper()}", user_id=project.mitra_id, project_id=contract_id,
             transaction_type="PENERIMAAN DANA (SPK SELESAI)", amount=budget_decimal, status="SUCCESS"
         ))
+
+        # ========================================================
+        # PERBAIKAN BARU: TAMBAHKAN METRIK 'PROJECTS COMPLETED' MITRA
+        # ========================================================
+        mitra_profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == project.mitra_id).first()
+        if mitra_profile:
+            # Cegah nilai NULL
+            current_completed = mitra_profile.projects_completed if mitra_profile.projects_completed else 0
+            mitra_profile.projects_completed = current_completed + 1
 
     # Catat pengeluaran Klien
     db.add(models.Transaction(
@@ -327,3 +347,35 @@ def sign_client_contract(project_id: str, client_id: str, db: Session = Depends(
     
     db.commit()
     return {"status": "success", "message": "Click-Wrap Agreement berhasil disahkan secara hukum."}
+
+#Fungsi helper untuk menyamarkan nama belakang
+def mask_name(full_name: str) -> str:
+    if not full_name:
+        return "Anonim"
+    parts = full_name.strip().split()
+    if len(parts) > 1:
+        # Mengambil nama depan + Inisial nama kedua
+        return f"{parts[0]} {parts[1][0]}."
+    return full_name
+
+# ==========================================
+# ENDPOINT: LIHAT PROFIL PUBLIK MITRA
+# ==========================================
+@router.get("/mitras/{mitra_id}/public", response_model=MitraPublicProfile)
+def get_mitra_public_profile(mitra_id: str, db: Session = Depends(get_db)):
+    # Lakukan Query Join User dan MitraProfile
+    mitra_data = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
+    
+    if not mitra_data or not mitra_data.user:
+        raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan")
+
+    # FastAPI HANYA akan mengembalikan kolom yang ada di MitraPublicProfile.
+    # Email, password_hash, dan kyc_status otomatis terbuang/disaring di sini.
+    return {
+        "id": mitra_data.user_id,
+        "name_masked": mask_name(mitra_data.user.name),
+        "specialty_role": mitra_data.specialty_role or "Spesialis Umum",
+        "rating": float(mitra_data.rating) if mitra_data.rating else 0.0,
+        "projects_completed": mitra_data.projects_completed or 0,
+        "hourly_rate_or_fee": mitra_data.hourly_rate_or_fee or "Tarif Negosiasi"
+    }

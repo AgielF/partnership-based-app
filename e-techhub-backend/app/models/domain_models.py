@@ -1,7 +1,11 @@
-from sqlalchemy import Column, String, Integer, DECIMAL, ForeignKey, Enum, Text, Table, DateTime
+
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
+# Import tipe data dari SQLAlchemy (Perhatikan DateTime menggunakan huruf kapital)
+from sqlalchemy import Column, String, Integer, DECIMAL, ForeignKey, Enum, Text, Table, DateTime, Boolean
+# Import modul waktu bawaan Python
+from datetime import datetime
 
 # Tabel Asosiasi Many-to-Many
 project_tags = Table(
@@ -90,3 +94,34 @@ class SystemSetting(Base):
     setting_key = Column(String(50), primary_key=True)
     setting_value = Column(String(255), nullable=False)
     description = Column(Text)
+
+# Tambahkan di bagian bawah file domain_models.py
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    # Hapus project_id, ganti dengan room_id (TIDAK ADA ForeignKey ke project lagi)
+    room_id = Column(String(100), nullable=False) 
+    sender_id = Column(String(50), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    message_text = Column(Text, nullable=False)
+    is_system_message = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relasi project dihapus, sisa relasi ke sender saja
+    sender = relationship("User")
+
+class IotDropoff(Base):
+    __tablename__ = "iot_dropoffs"
+    
+    id = Column(String(50), primary_key=True, index=True)
+    project_id = Column(String(50), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    admin_id = Column(String(50), ForeignKey("users.id"), nullable=False)
+    device_type = Column(String(100), nullable=False)
+    physical_status = Column(String(50), default='MENUNGGU_DIANTAR')
+    condition_notes = Column(Text)
+    received_at = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    # Relasi
+    project = relationship("Project", backref="dropoff_details")
+    admin = relationship("User")

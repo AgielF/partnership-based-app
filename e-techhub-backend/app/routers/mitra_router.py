@@ -34,6 +34,36 @@ class ProgressUpdate(BaseModel):
     mitra_id: str
     milestone_text: str
 
+class ClientPublicProfile(BaseModel):
+    id: str
+    name_masked: str
+    is_payment_verified: bool
+    total_projects_posted: int
+
+@router.get("/clients/{client_id}/public", response_model=ClientPublicProfile)
+def get_client_public_profile(client_id: str, db: Session = Depends(get_db)):
+    client_data = db.query(models.User).filter(models.User.id == client_id, models.User.role == 'client').first()
+    
+    if not client_data:
+        raise HTTPException(status_code=404, detail="Klien tidak ditemukan")
+
+    # Cek apakah klien pernah top-up (sebagai bukti kredibilitas/Payment Verified)
+    has_wallet_balance = db.query(models.Wallet).filter(models.Wallet.user_id == client_id, models.Wallet.balance > 0).first()
+    
+    # Hitung riwayat klien memposting kerjaan
+    projects_count = db.query(models.Project).filter(models.Project.client_id == client_id).count()
+
+    def mask_client_name(name: str) -> str:
+        parts = name.strip().split()
+        return f"{parts[0]} ***" if len(parts) > 0 else "Klien Rahasia"
+
+    return {
+        "id": client_data.id,
+        "name_masked": mask_client_name(client_data.name),
+        "is_payment_verified": True if has_wallet_balance else False,
+        "total_projects_posted": projects_count
+    }
+
 # ==========================================
 # BURSA KERJA (JOBS)
 # ==========================================

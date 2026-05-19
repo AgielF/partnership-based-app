@@ -1,12 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { getClientContracts, signClientContract, approveClientUat, rejectClientUat } from '../../services/api';
+// 1. IMPORT KOMPONEN MODAL
+import PublicProfileModal from '../../components/PublicProfileModal';
+import ChatModal from '../../components/ChatModal'; // <-- IMPORT CHAT MODAL BARU
 
 export default function ClientContracts() {
   const [contracts, setContracts] = useState([]);
   const [isSigning, setIsSigning] = useState(null);
   const [expandedRowId, setExpandedRowId] = useState(null); 
-  const [isProcessing, setIsProcessing] = useState(false); // State loading untuk UAT action
+  const [isProcessing, setIsProcessing] = useState(false);
   
+  // STATE UNTUK MENGONTROL MODAL
+  const [inspectedMitra, setInspectedMitra] = useState(null);
+  const [activeChatProject, setActiveChatProject] = useState(null); // <-- STATE UNTUK CHAT
+
   const clientId = localStorage.getItem('user_id');
 
   const fetchContracts = async () => {
@@ -23,7 +30,6 @@ export default function ClientContracts() {
     fetchContracts();
   }, [clientId]);
 
-  // FUNGSI 1: SIGN KONTRAK (CLICK-WRAP)
   const handleSignContract = async (contractId, mitraName) => {
     const legalWarning = `PERINGATAN HUKUM (CLICK-WRAP AGREEMENT):\n\nDengan menekan OK, Anda secara sadar mengikatkan diri secara hukum dengan Mitra (${mitraName}) untuk Proyek ID: ${contractId} berdasarkan Pasal 1320 KUHPerdata.\n\nApakah Anda setuju dengan seluruh Syarat & Ketentuan E-TechHub?`;
     
@@ -41,7 +47,6 @@ export default function ClientContracts() {
     }
   };
 
-  // FUNGSI 2: SETUJUI UAT (TERBITKAN BAST & BAYAR MITRA)
   const handleApproveUAT = async (contractId) => {
     if (window.confirm("YAKIN SETUJUI UAT?\n\nDengan menyetujui, dana Escrow akan otomatis dicairkan ke Mitra dan BAST diterbitkan. Tindakan ini TIDAK DAPAT DIBATALKAN.")) {
       setIsProcessing(true);
@@ -57,7 +62,6 @@ export default function ClientContracts() {
     }
   };
 
-  // FUNGSI 3: TOLAK UAT (AJUKAN SENGKETA)
   const handleRejectUAT = async (contractId) => {
     if (window.confirm("YAKIN TOLAK UAT?\n\nProyek akan dibekukan dan dialihkan ke tim Arbitrase Admin E-TechHub untuk diselidiki. Lanjutkan?")) {
       setIsProcessing(true);
@@ -78,7 +82,26 @@ export default function ClientContracts() {
   };
 
   return (
-    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
+    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black relative">
+      
+      {/* TAMPILKAN MODAL PROFIL */}
+      {inspectedMitra && (
+        <PublicProfileModal 
+          type="mitra" 
+          targetId={inspectedMitra} 
+          onClose={() => setInspectedMitra(null)} 
+        />
+      )}
+
+      {/* TAMPILKAN MODAL CHAT */}
+      {activeChatProject && (
+        <ChatModal 
+          projectId={activeChatProject} 
+          userId={clientId} 
+          onClose={() => setActiveChatProject(null)} 
+        />
+      )}
+
       <div className="border-b-8 border-black pb-6 mb-10">
         <h1 className="text-5xl font-black uppercase tracking-tighter">DOKUMEN E-CONTRACT</h1>
         <p className="text-sm font-bold text-gray-600 uppercase mt-2">LEGALITAS SPK & PANTAUAN PROGRES MITRA</p>
@@ -112,32 +135,51 @@ export default function ClientContracts() {
                     <td className="p-4 border-r-4 border-black">{c.type || c.service_type || 'UMUM'}</td>
                     
                     <td className="p-4 border-r-4 border-black">
-                      {c.mitra ? c.mitra : (
+                      {c.mitra_id ? ( 
+                         <button 
+                           onClick={() => setInspectedMitra(c.mitra_id)} 
+                           className="underline decoration-2 hover:bg-yellow-300 transition-colors px-1"
+                         >
+                           {c.mitra_name || c.mitra} 🔍
+                         </button>
+                      ) : c.mitra ? ( 
+                         <span className="text-gray-800 font-normal">{c.mitra} (ID Tidak Ditemukan)</span>
+                      ) : (
                          <span className="text-gray-400 italic font-normal">Menunggu Mitra...</span>
                       )}
                     </td>
                     
                     <td className="p-4 border-r-4 border-black">
-                      {/* Badge Legalitas / Status Utama */}
                       <span className={`block mb-2 ${c.status === 'COMPLETED' ? 'text-green-600' : isDisputed ? 'text-red-600' : isAlreadySigned ? 'text-blue-600' : 'text-yellow-600'}`}>
                         {c.status === 'COMPLETED' ? '✅ SELESAI (SAH)' : isDisputed ? '🚨 DALAM SENGKETA' : isAlreadySigned ? '📄 KONTRAK AKTIF' : '⚠️ MENUNGGU SIGNATURE'}
                       </span>
                       
-                      {/* Tombol Pengecekan Progres */}
-                      {c.mitra && (
-                        <button 
-                          onClick={() => toggleRow(c.id)}
-                          className={`text-xs px-2 py-1 border-2 border-black uppercase ${isWaitingUat ? 'bg-blue-300 animate-pulse' : isDisputed ? 'bg-red-200' : 'bg-yellow-200'} hover:bg-black hover:text-white transition-colors`}
-                        >
-                          {isExpanded ? 'TUTUP PANEL PROGRES' : isWaitingUat ? '🔍 MITRA MENGAJUKAN UAT!' : isDisputed ? '🔍 CEK STATUS SENGKETA' : '🔍 CEK PROGRES MITRA'}
-                        </button>
-                      )}
+                      <div className="flex gap-2 mt-2">
+                        {(c.mitra || c.mitra_id) && (
+                          <button 
+                            onClick={() => toggleRow(c.id)}
+                            className={`text-xs px-2 py-1 border-2 border-black uppercase ${isWaitingUat ? 'bg-blue-300 animate-pulse' : isDisputed ? 'bg-red-200' : 'bg-yellow-200'} hover:bg-black hover:text-white transition-colors`}
+                          >
+                            {isExpanded ? 'TUTUP PANEL PROGRES' : isWaitingUat ? '🔍 MITRA MENGAJUKAN UAT!' : isDisputed ? '🔍 CEK SENGKETA' : '🔍 CEK PROGRES'}
+                          </button>
+                        )}
+
+                        {/* TOMBOL PEMANGGIL CHAT MODAL */}
+                        {(c.mitra_id && c.status !== 'COMPLETED') && (
+                          <button 
+                            onClick={() => setActiveChatProject(c.id)}
+                            className="text-xs px-2 py-1 border-2 border-black uppercase bg-white hover:bg-yellow-300 transition-colors"
+                          >
+                            💬 CHAT REKAN KERJA
+                          </button>
+                        )}
+                      </div>
                     </td>
                     
                     <td className="p-4">
-                      {!isAlreadySigned && c.mitra ? (
+                      {!isAlreadySigned && (c.mitra || c.mitra_id) ? (
                           <button 
-                            onClick={() => handleSignContract(c.id, c.mitra)}
+                            onClick={() => handleSignContract(c.id, c.mitra_name || c.mitra)}
                             disabled={isSigning === c.id}
                             className={`text-white border-2 border-black px-4 py-2 uppercase shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none transition-all ${
                               isSigning === c.id ? 'bg-gray-500 cursor-wait' : 'bg-blue-600 hover:bg-blue-700'
@@ -158,7 +200,6 @@ export default function ClientContracts() {
                     </td>
                   </tr>
 
-                  {/* BARIS TERSEMBUNYI (EXPANDABLE ROW) UNTUK MELIHAT JEJAK PROGRES */}
                   {isExpanded && (
                     <tr className="bg-gray-800 text-white border-b-4 border-black">
                       <td colSpan="5" className="p-6">
@@ -171,7 +212,6 @@ export default function ClientContracts() {
                           )}
                         </div>
                         
-                        {/* Jika Mitra mengajukan UAT, Klien bisa memilih Accept atau Reject */}
                         {isWaitingUat && (
                            <div className="mt-4 flex flex-col sm:flex-row gap-4">
                              <button 

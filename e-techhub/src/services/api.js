@@ -325,3 +325,41 @@ export const rejectClientUat = async (clientId, contractId) => {
   if (!response.ok) throw new Error(data.detail || 'Gagal menolak UAT');
   return data;
 };
+
+
+// Mengambil data publik Mitra (Tanpa data pribadi)
+export const getMitraPublicProfile = async (mitraId) => {
+  const response = await fetch(`${BASE_URL}/client/mitras/${mitraId}/public`);
+  if (!response.ok) throw new Error('Gagal memuat profil mitra');
+  return response.json();
+};
+
+// Mengambil data publik Klien (Tanpa data pribadi)
+export const getClientPublicProfile = async (clientId) => {
+  const response = await fetch(`${BASE_URL}/mitra/clients/${clientId}/public`);
+  if (!response.ok) throw new Error('Gagal memuat profil klien');
+  return response.json();
+};
+
+
+// Membuat Base URL untuk WebSockets secara dinamis.
+// Mengubah string 'http://127.0.0.1:8000/api' menjadi 'ws://127.0.0.1:8000/api'
+export const WS_BASE_URL = BASE_URL.replace(/^http/, 'ws');
+
+// Endpoint REST API untuk mengambil riwayat chat
+export const getChatHistory = async (projectId) => {
+  const response = await fetch(`${BASE_URL}/chat/history/${projectId}`);
+  if (!response.ok) {
+    throw new Error('Gagal memuat riwayat obrolan dari server.');
+  }
+  return response.json();
+};
+
+// Endpoint untuk mengambil daftar Kotak Masuk (Inbox)
+export const getChatInbox = async (userId) => {
+  const response = await fetch(`${BASE_URL}/chat/inbox/${userId}`);
+  if (!response.ok) {
+    throw new Error('Gagal memuat kotak masuk dari server.');
+  }
+  return response.json();
+};

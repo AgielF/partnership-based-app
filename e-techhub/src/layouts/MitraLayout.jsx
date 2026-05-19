@@ -23,6 +23,7 @@ export default function MitraLayout() {
     { name: 'PROYEK & KONTRAK', path: '/mitra/projects', icon: '📝' },
     { name: 'BURSA KERJA', path: '/mitra/jobs', icon: '🎯' },
     { name: 'SALDO ESCROW', path: '/mitra/wallet', icon: '💵' },
+      { name: 'INBOX', path: '/mitra/MitraInbox', icon: '✉️' },
   ];
 
   return (

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { getMitraDirectory, createProject } from '../../services/api';
+import ChatModal from '../../components/ChatModal'; // <-- IMPORT CHAT MODAL
 
 export default function ClientMarketplace() {
   const [mitraList, setMitraList] = useState([]);
   const clientId = localStorage.getItem('user_id');
 
-  // State untuk form (Ditambah Deadline & Tags)
+  // State untuk form
   const [title, setTitle] = useState('');
   const [serviceType, setServiceType] = useState('SOFTWARE/WEB');
   const [budget, setBudget] = useState('');
@@ -15,6 +16,9 @@ export default function ClientMarketplace() {
   
   // State untuk menyimpan Mitra yang sedang dipilih (Sewa Langsung)
   const [selectedMitra, setSelectedMitra] = useState(null);
+
+  // STATE BARU: MENGONTROL MODAL CHAT NEGOSIASI
+  const [activeChatRoom, setActiveChatRoom] = useState(null);
 
   useEffect(() => {
     const fetchMitras = async () => {
@@ -37,7 +41,6 @@ export default function ClientMarketplace() {
       finalDescription = `[PROYEK PRIVATE UNTUK MITRA: ${selectedMitra.id}] - ` + description;
     }
 
-    // Memecah teks tag menjadi array (misal: "REACT, NODEJS" -> ["REACT", "NODEJS"])
     const parsedTags = tagsInput.split(',').map(tag => tag.trim()).filter(tag => tag !== '');
 
     try {
@@ -46,13 +49,12 @@ export default function ClientMarketplace() {
         service_type: serviceType,
         budget: parseFloat(budget),
         description: finalDescription,
-        deadline_days: parseInt(deadlineDays, 10), // Konversi ke integer
-        tags: parsedTags                           // Kirim array ke backend
+        deadline_days: parseInt(deadlineDays, 10), 
+        tags: parsedTags                           
       });
       
       alert(selectedMitra ? `Permintaan SPK berhasil dikirim langsung ke ${selectedMitra.name}!` : "Proyek berhasil dipublikasikan ke Bursa Kerja Umum!");
       
-      // Reset form
       setTitle(''); setBudget(''); setDescription(''); setDeadlineDays(''); setTagsInput(''); setSelectedMitra(null);
     } catch (error) {
       alert(`Gagal: ${error.message}`);
@@ -60,7 +62,17 @@ export default function ClientMarketplace() {
   };
 
   return (
-    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
+    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black relative">
+      
+      {/* TAMPILKAN MODAL CHAT JIKA TOMBOL NEGO DITEKAN */}
+      {activeChatRoom && (
+        <ChatModal 
+          roomId={activeChatRoom} 
+          userId={clientId} 
+          onClose={() => setActiveChatRoom(null)} 
+        />
+      )}
+
       <div className="border-b-8 border-black pb-6 mb-10 flex justify-between items-end">
         <div>
           <h1 className="text-5xl font-black uppercase tracking-tighter">CARI JASA (O2O)</h1>
@@ -111,7 +123,6 @@ export default function ClientMarketplace() {
               </div>
             </div>
 
-            {/* BARIS BARU UNTUK DEADLINE DAN TAGS */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-black uppercase mb-1">Estimasi Waktu (Hari)</label>
@@ -154,14 +165,26 @@ export default function ClientMarketplace() {
                     <span key={tag} className="border-2 border-black px-2 py-1 text-xs font-bold uppercase bg-white">{tag}</span>
                   ))}
                 </div>
-                <div className="flex justify-between items-center border-t-4 border-black pt-3">
+                
+                {/* BARIS TOMBOL AKSI DIPERBARUI */}
+                <div className="flex justify-between items-center border-t-4 border-black pt-4 mt-2">
                   <span className="font-black text-lg">{mitra.rate}</span>
-                  <button 
-                    onClick={() => setSelectedMitra(mitra)}
-                    className="bg-blue-600 text-white border-2 border-black px-4 py-2 font-black uppercase hover:bg-blue-700 active:translate-y-1"
-                  >
-                    {selectedMitra?.id === mitra.id ? 'DIPILIH' : 'PILIH MITRA'}
-                  </button>
+                  
+                  <div className="flex gap-2">
+                     <button 
+                       onClick={() => setActiveChatRoom(`NEGO-${clientId}-${mitra.id}`)}
+                       className="bg-white text-black border-2 border-black px-3 py-2 font-black uppercase hover:bg-yellow-300 active:translate-y-1 text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all"
+                     >
+                       💬 NEGO
+                     </button>
+
+                     <button 
+                       onClick={() => setSelectedMitra(mitra)}
+                       className="bg-blue-600 text-white border-2 border-black px-4 py-2 font-black uppercase hover:bg-blue-700 active:translate-y-1 text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all"
+                     >
+                       {selectedMitra?.id === mitra.id ? 'DIPILIH' : 'BUAT SPK'}
+                     </button>
+                  </div>
                 </div>
               </div>
             ))}

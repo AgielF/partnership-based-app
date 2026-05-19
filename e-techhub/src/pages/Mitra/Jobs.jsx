@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { getMitraJobs, getMitraProfile, takeMitraProject } from '../../services/api';
+// 1. IMPORT KOMPONEN MODAL
+import PublicProfileModal from '../../components/PublicProfileModal'; 
 
 export default function MitraJobs() {
   const [activeFilter, setActiveFilter] = useState('SEMUA');
   const [jobList, setJobList] = useState([]);
-  
-  // State profil akan kosong/null sebelum data dari database tiba
   const [mitraProfile, setMitraProfile] = useState(null);
+  
+  // 2. STATE UNTUK MENGONTROL MODAL PROFIL
+  const [inspectedClient, setInspectedClient] = useState(null); 
   
   const mitraId = localStorage.getItem('user_id');
 
@@ -14,15 +17,12 @@ export default function MitraJobs() {
     const fetchData = async () => {
       if (!mitraId) return;
       try {
-        // Tarik data bursa kerja dan profil database secara paralel (bersamaan) agar lebih cepat
         const [jobsData, profileData] = await Promise.all([
           getMitraJobs(),
           getMitraProfile(mitraId)
         ]);
-        
         setJobList(jobsData);
-        setMitraProfile(profileData); // Data murni dari MySQL masuk ke sini!
-
+        setMitraProfile(profileData);
       } catch (error) {
         console.error("Gagal menarik data dari server:", error);
       }
@@ -30,48 +30,27 @@ export default function MitraJobs() {
     fetchData();
   }, [mitraId]);
 
-  // LOGIKA FILTER
   const filteredJobs = activeFilter === 'SEMUA' 
     ? jobList 
     : jobList.filter(job => job.type === activeFilter);
 
-  const filterOptions = [
-    'SEMUA', 
-    'SOFTWARE/WEB', 
-    'IOT/EMBEDDED', 
-    'SERVIS HARDWARE', 
-    'PERENTALAN'
-  ];
+  const filterOptions = ['SEMUA', 'SOFTWARE/WEB', 'IOT/EMBEDDED', 'SERVIS HARDWARE', 'PERENTALAN'];
 
-  // FUNGSI PENGAMBILAN PEKERJAAN KE DATABASE
   const handleTakeJob = async (projectId, budgetAmount) => {
     if (!mitraProfile) return alert("Sistem masih memuat data profil Anda.");
 
-    // Validasi Frontend Dasar
-    if (mitraProfile.kyc_status === 'BANNED') {
-        return alert("AKSES DITOLAK: Akun Anda telah diblokir permanen.");
-    }
-    if (mitraProfile.kyc_status !== 'VERIFIED') {
-        return alert("AKSES DITOLAK: Akun Anda belum diverifikasi oleh Admin. Silakan selesaikan proses KYC terlebih dahulu.");
-    }
+    if (mitraProfile.kyc_status === 'BANNED') return alert("AKSES DITOLAK: Akun diblokir.");
+    if (mitraProfile.kyc_status !== 'VERIFIED') return alert("AKSES DITOLAK: Akun belum diverifikasi.");
+    if (mitraProfile.projects_completed === 0 && budgetAmount > 1000000) return alert("⚠️ DITOLAK: Melebihi batas proyek pertama.");
 
-    if (mitraProfile.projects_completed === 0 && budgetAmount > 1000000) {
-      return alert("⚠️ DITOLAK: Untuk proyek pertama Anda, dilarang mengambil kontrak dengan nilai di atas Rp 1.000.000.");
-    }
-
-    // Eksekusi API
-    if (window.confirm("Apakah Anda yakin ingin mengambil kontrak proyek ini? Pastikan Anda sanggup menyelesaikannya tepat waktu.")) {
+    if (window.confirm("Apakah Anda yakin ingin mengambil kontrak proyek ini?")) {
       try {
         await takeMitraProject(projectId, mitraId); 
+        alert("SUKSES: Pekerjaan resmi ditambahkan ke ruang kerja Anda!");
         
-        alert("SUKSES: Pekerjaan resmi ditambahkan ke ruang kerja Anda! Segera cek Dasbor Proyek.");
-        
-        // Refresh daftar pekerjaan & profil agar UI langsung mengunci tombol lain
         const [updatedJobs, updatedProfile] = await Promise.all([
-          getMitraJobs(),
-          getMitraProfile(mitraId)
+          getMitraJobs(), getMitraProfile(mitraId)
         ]);
-        
         setJobList(updatedJobs);
         setMitraProfile(updatedProfile);
       } catch (error) {
@@ -80,7 +59,6 @@ export default function MitraJobs() {
     }
   };
 
-  // Tampilkan layar loading brutalist jika data database belum tiba
   if (!mitraProfile) {
     return (
       <div className="min-h-screen bg-white p-8 flex items-center justify-center font-mono">
@@ -92,14 +70,22 @@ export default function MitraJobs() {
   }
 
   return (
-    <div className="min-h-screen bg-white p-8 font-mono text-black">
+    <div className="min-h-screen bg-white p-8 font-mono text-black relative">
       
-      {/* BANNER INDIKATOR MASA PERCOBAAN (PROBATION) */}
+      {/* 3. TAMPILKAN MODAL JIKA ADA KLIEN YANG DIINSPEKSI */}
+      {inspectedClient && (
+        <PublicProfileModal 
+          type="client" 
+          targetId={inspectedClient} 
+          onClose={() => setInspectedClient(null)} 
+        />
+      )}
+
       {mitraProfile.projects_completed < 10 && (
         <div className="border-4 border-black p-4 bg-red-500 text-white font-black uppercase text-sm mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] animate-pulse">
           🚨 STATUS AKUN: MASA PERCOBAAN (PROYEK SELESAI: {mitraProfile.projects_completed}/10).
           <br/>
-          ATURAN: Anda HANYA diizinkan mengerjakan 1 proyek dalam satu waktu. Proyek pertama maksimal senilai Rp 1 JUTA. Mendapatkan ulasan bintang 1 pada masa percobaan akan mengakibatkan pemblokiran akun permanen.
+          ATURAN: Anda HANYA diizinkan mengerjakan 1 proyek dalam satu waktu. Proyek pertama maksimal senilai Rp 1 JUTA.
         </div>
       )}
 
@@ -115,7 +101,6 @@ export default function MitraJobs() {
         </div>
       </div>
 
-      {/* RENDER TOMBOL FILTER */}
       <div className="flex gap-4 mb-8 overflow-x-auto pb-2">
         {filterOptions.map((filter) => (
           <button
@@ -137,18 +122,9 @@ export default function MitraJobs() {
            </p>
         ) : filteredJobs.map((job) => {
           
-          // KALKULASI PENGUNCIAN TOMBOL BERDASARKAN DATABASE ASLI
-          const numericBudget = typeof job.budget === 'number' 
-            ? job.budget 
-            : Number(job.budget?.replace(/[^0-9.-]+/g, "")) || 0;
-
-          // 1. Terkunci jika proyek pertama > Rp 1 juta
+          const numericBudget = typeof job.budget === 'number' ? job.budget : Number(job.budget?.replace(/[^0-9.-]+/g, "")) || 0;
           const isLockedByFirstJobBudget = mitraProfile.projects_completed === 0 && numericBudget > 1000000;
-          
-          // 2. Terkunci jika status belum VERIFIED
           const isLockedByKyc = mitraProfile.kyc_status !== 'VERIFIED';
-
-          // 3. Terkunci jika masih masa percobaan (< 10) DAN sudah punya >= 1 proyek berjalan
           const isLockedByActiveQuota = mitraProfile.projects_completed < 10 && (mitraProfile.active_projects >= 1);
 
           return (
@@ -161,9 +137,18 @@ export default function MitraJobs() {
                   <span className="font-bold text-xs uppercase text-gray-500">ID: {job.id}</span>
                 </div>
                 <h2 className="text-2xl font-black uppercase leading-tight mb-2">{job.title}</h2>
-                <p className="font-bold text-sm text-gray-600 uppercase mb-4">
-                  KLIEN: {job.client || 'KLIEN RAHASIA'}
+                
+                {/* 4. TOMBOL PANGGIL MODAL PROFIL KLIEN */}
+                <p className="font-bold text-sm text-gray-600 uppercase mb-4 flex items-center gap-2">
+                  KLIEN: 
+                  <button 
+                    onClick={() => setInspectedClient(job.client_id || job.client)} // Sesuaikan dengan nama properti dari API jobs Anda
+                    className="underline decoration-2 hover:bg-black hover:text-white px-1 transition-colors"
+                  >
+                    {job.client || 'KLIEN RAHASIA'} 🔍
+                  </button>
                 </p>
+
                 <div className="p-4 border-2 border-black border-dashed bg-gray-50 mb-6">
                   <p className="text-sm font-medium">{job.description}</p>
                 </div>
@@ -192,7 +177,6 @@ export default function MitraJobs() {
                   </div>
                 </div>
                 
-                {/* TOMBOL PENGAMBILAN BERDASARKAN DATABASE */}
                 <button 
                   onClick={() => handleTakeJob(job.id, numericBudget)}
                   disabled={isLockedByFirstJobBudget || isLockedByKyc || isLockedByActiveQuota}
@@ -207,7 +191,6 @@ export default function MitraJobs() {
                    isLockedByFirstJobBudget ? '❌ BUDGET MELEBIHI BATAS PERCOBAAN' : 
                    'AMBIL PROYEK INI'}
                 </button>
-
               </div>
             </div>
           );

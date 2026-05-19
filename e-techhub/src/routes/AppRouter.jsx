@@ -29,6 +29,9 @@ import MitraJobs from '../pages/Mitra/Jobs';
 import MitraDashboard from '../pages/Mitra/Dashboard';
 import MitraProjects from '../pages/Mitra/Projects';
 import MitraWallet from '../pages/Mitra/Wallet';
+import MitraInbox from '../pages/Mitra/Inbox'; 
+
+
 import PublicMarketplace from '../pages/PublicMarketplace';
 import About from '../pages/About';
 
@@ -81,6 +84,7 @@ export default function AppRouter() {
           <Route path="dashboard" element={<MitraDashboard/>} />
           <Route path="projects" element={<MitraProjects/>} />
           <Route path="wallet" element={<MitraWallet/>} />
+          <Route path="MitraInbox" element={<MitraInbox/>} />
         </Route>
 
         {/* ==========================================
