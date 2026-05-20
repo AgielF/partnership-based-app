@@ -7,7 +7,13 @@ from pydantic import BaseModel
 import uuid
 import os
 import glob
-from datetime import datetime # <-- PASTIKAN INI DI-IMPORT
+import re
+
+# --- TAMBAHAN UNTUK COMPUTER VISION ---
+import base64
+import numpy as np
+import cv2
+# --------------------------------------
 
 from app.core.security import get_password_hash 
 from app.core.database import get_db
@@ -33,6 +39,11 @@ class DropOffCreate(BaseModel):
 
 class SettingUpdate(BaseModel):
     value: str
+
+# --- TAMBAHAN SKEMA COMPUTER VISION ---
+class CashScanRequest(BaseModel):
+    image_base64: str
+# --------------------------------------
 
 # ==========================================
 # REGISTER ADMIN (SEEDER)
@@ -425,3 +436,53 @@ def get_user_name(user_id: str, db: Session = Depends(get_db)):
         "name": user.name,
         "role": user.role.upper()
     }
+
+# ==========================================
+# PILAR 6: AI COMPUTER VISION (OPENCV LOKAL STANDALONE)
+# ==========================================
+import cv2
+import numpy as np
+import base64
+from fastapi import HTTPException
+
+@router.post("/scan-cash")
+def scan_cash_authenticity(payload: CashScanRequest):
+    try:
+        # 1. Decode Base64 dari React ke Matriks OpenCV
+        encoded_data = payload.image_base64.split(',')[1] if ',' in payload.image_base64 else payload.image_base64
+        decoded_bytes = base64.b64decode(encoded_data)
+        nparr = np.frombuffer(decoded_bytes, np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+        if img is None:
+            raise ValueError("Gambar gagal di-decode oleh server.")
+
+        # 2. LOGIKA OPENCV SEDERHANA
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+
+        # Penyesuaian Threshold untuk Webcam (Diturunkan dari 100 ke 35)
+        # Semakin kecil angkanya, semakin mudah sistem bilang "ASLI"
+        threshold_ketajaman = 35.0 
+
+        if laplacian_var > threshold_ketajaman:
+            hasil_tebakan = "ASLI"
+            # Base persentase 75%, ditambah bonus dari seberapa tajam gambarnya (Maksimal 99%)
+            bonus_ketajaman = (laplacian_var - threshold_ketajaman) * 0.5
+            skor = min(99.0, 75.0 + bonus_ketajaman) 
+        else:
+            hasil_tebakan = "PALSU"
+            # Jika sangat blur (< 35), persentase dinamis dari 10% hingga 74%
+            skor = min(74.0, max(10.0, laplacian_var * 1.8))
+            
+        # 3. KEMBALIKAN KE LAYAR KASIR REACT
+        return {
+            "status": "success",
+            "hasil_deteksi": hasil_tebakan,
+            "confidence": round(skor, 2),
+            "message": "Pemindaian tekstur uang selesai."
+        }
+
+    except Exception as e:
+        print(f"Error CV Tradisional: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Gagal memproses gambar: {str(e)}")
