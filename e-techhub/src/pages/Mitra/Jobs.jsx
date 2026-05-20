@@ -1,15 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { getMitraJobs, getMitraProfile, takeMitraProject } from '../../services/api';
+
 // 1. IMPORT KOMPONEN MODAL
 import PublicProfileModal from '../../components/PublicProfileModal'; 
+import QnABoardModal from '../../components/QnABoardModal'; // <--- IMPORT MODAL QnA
 
 export default function MitraJobs() {
   const [activeFilter, setActiveFilter] = useState('SEMUA');
   const [jobList, setJobList] = useState([]);
   const [mitraProfile, setMitraProfile] = useState(null);
   
-  // 2. STATE UNTUK MENGONTROL MODAL PROFIL
+  // 2. STATE UNTUK MENGONTROL MODAL
   const [inspectedClient, setInspectedClient] = useState(null); 
+  const [activeQnA, setActiveQnA] = useState(null); // <--- STATE UNTUK MODAL QnA
   
   const mitraId = localStorage.getItem('user_id');
 
@@ -81,6 +84,15 @@ export default function MitraJobs() {
         />
       )}
 
+      {/* TAMPILKAN MODAL QnA BOARD (BARU) */}
+      {activeQnA && (
+        <QnABoardModal 
+          projectId={activeQnA} 
+          userId={mitraId} 
+          onClose={() => setActiveQnA(null)} 
+        />
+      )}
+
       {mitraProfile.projects_completed < 10 && (
         <div className="border-4 border-black p-4 bg-red-500 text-white font-black uppercase text-sm mb-6 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] animate-pulse">
           🚨 STATUS AKUN: MASA PERCOBAAN (PROYEK SELESAI: {mitraProfile.projects_completed}/10).
@@ -138,16 +150,30 @@ export default function MitraJobs() {
                 </div>
                 <h2 className="text-2xl font-black uppercase leading-tight mb-2">{job.title}</h2>
                 
-                {/* 4. TOMBOL PANGGIL MODAL PROFIL KLIEN */}
-                <p className="font-bold text-sm text-gray-600 uppercase mb-4 flex items-center gap-2">
-                  KLIEN: 
+                {/* 4. AREA INFORMASI KLIEN & TOMBOL QnA (DIPERBAIKI) */}
+                <div className="font-bold text-sm text-gray-600 uppercase mb-4 flex items-center flex-wrap gap-y-2">
+                  <span className="mr-2">KLIEN:</span> 
                   <button 
-                    onClick={() => setInspectedClient(job.client_id || job.client)} // Sesuaikan dengan nama properti dari API jobs Anda
-                    className="underline decoration-2 hover:bg-black hover:text-white px-1 transition-colors"
+                    onClick={() => {
+                        if(job.client_id) {
+                            setInspectedClient(job.client_id)
+                        } else {
+                            alert("ID Klien tidak tersedia untuk proyek ini.");
+                        }
+                    }} 
+                    className="underline decoration-2 hover:bg-black hover:text-white px-1 transition-colors mr-3"
                   >
                     {job.client || 'KLIEN RAHASIA'} 🔍
                   </button>
-                </p>
+
+                  {/* TOMBOL PANGGIL MODAL QnA BOARD */}
+                  <button 
+                    onClick={() => setActiveQnA(job.id)}
+                    className="bg-white text-black border-2 border-black px-2 py-0.5 text-xs hover:bg-blue-300 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-0.5 active:shadow-none"
+                  >
+                    ❓ TANYA PUBLIK (Q&A)
+                  </button>
+                </div>
 
                 <div className="p-4 border-2 border-black border-dashed bg-gray-50 mb-6">
                   <p className="text-sm font-medium">{job.description}</p>

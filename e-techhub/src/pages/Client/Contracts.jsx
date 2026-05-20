@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { getClientContracts, signClientContract, approveClientUat, rejectClientUat } from '../../services/api';
+
 // 1. IMPORT KOMPONEN MODAL
 import PublicProfileModal from '../../components/PublicProfileModal';
-import ChatModal from '../../components/ChatModal'; // <-- IMPORT CHAT MODAL BARU
+import ChatModal from '../../components/ChatModal';
+import ProgressModal from '../../components/ProgressModal'; 
+import QnABoardModal from '../../components/QnABoardModal'; // <--- IMPORT MODAL QnA
 
 export default function ClientContracts() {
   const [contracts, setContracts] = useState([]);
@@ -12,7 +15,9 @@ export default function ClientContracts() {
   
   // STATE UNTUK MENGONTROL MODAL
   const [inspectedMitra, setInspectedMitra] = useState(null);
-  const [activeChatProject, setActiveChatProject] = useState(null); // <-- STATE UNTUK CHAT
+  const [activeChatProject, setActiveChatProject] = useState(null);
+  const [activeProgressProject, setActiveProgressProject] = useState(null); 
+  const [activeQnA, setActiveQnA] = useState(null); // <--- STATE UNTUK MODAL QnA
 
   const clientId = localStorage.getItem('user_id');
 
@@ -96,9 +101,30 @@ export default function ClientContracts() {
       {/* TAMPILKAN MODAL CHAT */}
       {activeChatProject && (
         <ChatModal 
-          projectId={activeChatProject} 
+          roomId={`PROJ-${activeChatProject}`} // Mengikuti standar penamaan roomId untuk proyek
           userId={clientId} 
           onClose={() => setActiveChatProject(null)} 
+        />
+      )}
+
+      {/* TAMPILKAN MODAL PELACAK PROGRES TINGKAT INDUSTRI */}
+      {activeProgressProject && (
+        <ProgressModal 
+          projectId={activeProgressProject} 
+          userRole="client" 
+          onClose={() => {
+              setActiveProgressProject(null);
+              fetchContracts(); // Refresh tabel setelah modal ditutup
+          }} 
+        />
+      )}
+
+      {/* TAMPILKAN MODAL QnA BOARD UNTUK KLIEN */}
+      {activeQnA && (
+        <QnABoardModal 
+          projectId={activeQnA} 
+          userId={clientId} 
+          onClose={() => setActiveQnA(null)} 
         />
       )}
 
@@ -154,17 +180,27 @@ export default function ClientContracts() {
                         {c.status === 'COMPLETED' ? '✅ SELESAI (SAH)' : isDisputed ? '🚨 DALAM SENGKETA' : isAlreadySigned ? '📄 KONTRAK AKTIF' : '⚠️ MENUNGGU SIGNATURE'}
                       </span>
                       
-                      <div className="flex gap-2 mt-2">
+                      <div className="flex flex-wrap gap-2 mt-2">
                         {(c.mitra || c.mitra_id) && (
                           <button 
                             onClick={() => toggleRow(c.id)}
                             className={`text-xs px-2 py-1 border-2 border-black uppercase ${isWaitingUat ? 'bg-blue-300 animate-pulse' : isDisputed ? 'bg-red-200' : 'bg-yellow-200'} hover:bg-black hover:text-white transition-colors`}
                           >
-                            {isExpanded ? 'TUTUP PANEL PROGRES' : isWaitingUat ? '🔍 MITRA MENGAJUKAN UAT!' : isDisputed ? '🔍 CEK SENGKETA' : '🔍 CEK PROGRES'}
+                            {isExpanded ? 'TUTUP PANEL TEKS' : isWaitingUat ? '🔍 MITRA MENGAJUKAN UAT!' : isDisputed ? '🔍 CEK SENGKETA' : '🔍 LOG TEXT PROGRES'}
                           </button>
                         )}
 
-                        {/* TOMBOL PEMANGGIL CHAT MODAL */}
+                        {/* TOMBOL PELACAK PROGRES */}
+                        {(c.mitra_id && c.status !== 'COMPLETED') && (
+                          <button 
+                            onClick={() => setActiveProgressProject(c.id)}
+                            className="text-xs px-2 py-1 border-2 border-black uppercase bg-green-300 hover:bg-green-400 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
+                          >
+                            📈 TINJAU BUKTI KERJA
+                          </button>
+                        )}
+
+                        {/* TOMBOL CHAT PERSONAL (DENGAN MITRA) */}
                         {(c.mitra_id && c.status !== 'COMPLETED') && (
                           <button 
                             onClick={() => setActiveChatProject(c.id)}
@@ -173,6 +209,18 @@ export default function ClientContracts() {
                             💬 CHAT REKAN KERJA
                           </button>
                         )}
+
+                        {/* ==========================================
+                            TOMBOL BARU: DISKUSI PUBLIK (Q&A) KLIEN
+                            Meskipun belum ada mitra, klien tetap bisa
+                            menjawab Q&A dari calon pelamar.
+                            ========================================== */}
+                        <button 
+                          onClick={() => setActiveQnA(c.id)}
+                          className="text-xs px-2 py-1 border-2 border-black uppercase bg-blue-200 hover:bg-blue-400 transition-colors shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
+                        >
+                          ❓ Q&A PUBLIK
+                        </button>
                       </div>
                     </td>
                     
@@ -195,20 +243,21 @@ export default function ClientContracts() {
                             📄 UNDUH PDF (SAH)
                           </button>
                       ) : (
-                          <span className="text-gray-400 text-xs italic">Tindakan ada di panel Progres</span>
+                          <span className="text-gray-400 text-xs italic">Aksi ada di panel Progres</span>
                       )}
                     </td>
                   </tr>
 
+                  {/* PANEL TEKS JEJAK AUDIT TETAP ADA SEBAGAI CADANGAN/LOG MURNI */}
                   {isExpanded && (
                     <tr className="bg-gray-800 text-white border-b-4 border-black">
                       <td colSpan="5" className="p-6">
-                        <h4 className="text-lg font-black uppercase mb-2 text-yellow-300">JEJAK AUDIT & PROGRES PENGERJAAN:</h4>
+                        <h4 className="text-lg font-black uppercase mb-2 text-yellow-300">JEJAK AUDIT TEXT-LOG MURNI:</h4>
                         <div className="bg-black p-4 border-2 border-yellow-300 font-mono text-sm leading-relaxed">
                           {c.current_milestone ? (
                             <p> {c.current_milestone}</p>
                           ) : (
-                            <p className="text-gray-500 italic">Belum ada progres yang dilaporkan oleh Mitra.</p>
+                            <p className="text-gray-500 italic">Belum ada progres teks yang dilaporkan oleh Mitra.</p>
                           )}
                         </div>
                         
@@ -224,7 +273,7 @@ export default function ClientContracts() {
                              <button 
                                onClick={() => handleRejectUAT(c.id)} 
                                disabled={isProcessing}
-                               className={`font-black uppercase px-6 py-2 border-2 border-white transition-all ${isProcessing ? 'bg-gray-500 cursor-wait' : 'bg-red-500 hover:bg-red-600 text-white'}`}
+                               className={`font-black uppercase px-6 py-2 border-2 border-white transition-all ${isProcessing ? 'bg-red-500 cursor-wait' : 'bg-red-500 hover:bg-red-600 text-white'}`}
                              >
                                ❌ TOLAK (AJUKAN SENGKETA)
                              </button>

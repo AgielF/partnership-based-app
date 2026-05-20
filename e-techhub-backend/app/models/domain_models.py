@@ -7,6 +7,14 @@ from sqlalchemy import Column, String, Integer, DECIMAL, ForeignKey, Enum, Text,
 # Import modul waktu bawaan Python
 from datetime import datetime
 
+
+import enum
+from sqlalchemy import Column, String, Integer, Text, Enum, ForeignKey, DateTime
+from sqlalchemy.orm import relationship
+from datetime import datetime
+from app.core.database import Base
+
+
 # Tabel Asosiasi Many-to-Many
 project_tags = Table(
     'project_tags',
@@ -125,3 +133,50 @@ class IotDropoff(Base):
     # Relasi
     project = relationship("Project", backref="dropoff_details")
     admin = relationship("User")
+
+
+# 1. Definisi Enum Status Progres Tingkat Industri
+class DeliverableStatus(str, enum.Enum):
+    PENDING = "PENDING"
+    SUBMITTED = "SUBMITTED"
+    REVISION_REQUESTED = "REVISION_REQUESTED"
+    APPROVED = "APPROVED"
+
+# 2. Model Objek Data Bukti Kerja
+class ProjectDeliverable(Base):
+    __tablename__ = "project_deliverables"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    project_id = Column(String(50), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    submission_link = Column(Text, nullable=True)
+    status = Column(Enum(DeliverableStatus), default=DeliverableStatus.PENDING, nullable=False)
+    feedback = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relasi balik ke entitas Project utama
+    project = relationship("Project")
+
+
+class ProjectQnA(Base):
+    __tablename__ = "project_qna"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    project_id = Column(String(50), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(String(50), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    message = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    # Relasi ORM
+    user = relationship("User")
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    user_id = Column(String(50), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    is_read = Column(Integer, default=0) # 0 = unread, 1 = read
+    created_at = Column(DateTime, default=datetime.utcnow)

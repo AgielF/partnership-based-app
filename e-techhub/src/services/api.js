@@ -327,17 +327,18 @@ export const rejectClientUat = async (clientId, contractId) => {
 };
 
 
-// Mengambil data publik Mitra (Tanpa data pribadi)
-export const getMitraPublicProfile = async (mitraId) => {
-  const response = await fetch(`${BASE_URL}/client/mitras/${mitraId}/public`);
-  if (!response.ok) throw new Error('Gagal memuat profil mitra');
+export const getClientPublicProfile = async (clientId) => {
+  // Pastikan menembak ke mitra_router
+  const response = await fetch(`${BASE_URL}/mitra/clients/${clientId}/public`);
+  if (!response.ok) throw new Error('Gagal memuat profil klien');
   return response.json();
 };
 
-// Mengambil data publik Klien (Tanpa data pribadi)
-export const getClientPublicProfile = async (clientId) => {
-  const response = await fetch(`${BASE_URL}/mitra/clients/${clientId}/public`);
-  if (!response.ok) throw new Error('Gagal memuat profil klien');
+// Mengambil data publik Mitra (Tanpa data pribadi)
+export const getMitraPublicProfile = async (mitraId) => {
+  // Pastikan menembak ke client_router (karena Klien yang butuh info ini)
+  const response = await fetch(`${BASE_URL}/client/mitras/${mitraId}/public`);
+  if (!response.ok) throw new Error('Gagal memuat profil mitra');
   return response.json();
 };
 
@@ -362,4 +363,82 @@ export const getChatInbox = async (userId) => {
     throw new Error('Gagal memuat kotak masuk dari server.');
   }
   return response.json();
+};
+
+// ==========================================
+// API PELACAKAN PROGRES (DELIVERABLES)
+// ==========================================
+
+// Mengambil daftar milestone (Bisa diakses Klien maupun Mitra)
+export const getProjectDeliverables = async (role, projectId) => {
+  // role harus berisi string 'client' atau 'mitra'
+  const response = await fetch(`${BASE_URL}/${role}/projects/${projectId}/deliverables`);
+  if (!response.ok) throw new Error('Gagal memuat detail progres proyek.');
+  return response.json();
+};
+
+// Mitra mengirimkan bukti kerja
+export const submitDeliverable = async (projectId, deliverableId, payload) => {
+  const response = await fetch(`${BASE_URL}/mitra/projects/${projectId}/deliverables/${deliverableId}/submit`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengirim progres.');
+  return data;
+};
+
+// Klien mereview (Approve / Reject) bukti kerja
+export const reviewDeliverable = async (projectId, deliverableId, payload) => {
+  const response = await fetch(`${BASE_URL}/client/projects/${projectId}/deliverables/${deliverableId}/review`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengirim evaluasi.');
+  return data;
+};
+
+
+// ==========================================
+// API Q&A BOARD (DISKUSI PUBLIK)
+// ==========================================
+export const getProjectQnA = async (projectId) => {
+  const response = await fetch(`${BASE_URL}/mitra/projects/${projectId}/qna`);
+  if (!response.ok) throw new Error('Gagal memuat papan diskusi.');
+  return response.json();
+};
+
+export const submitProjectQnA = async (projectId, payload) => {
+  const response = await fetch(`${BASE_URL}/mitra/projects/${projectId}/qna`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengirim pesan.');
+  return data;
+};
+
+
+export const getDisputedProjects = async () => {
+  const response = await fetch(`${BASE_URL}/admin/escrows/disputed`);
+  if (!response.ok) throw new Error('Gagal mengambil data sengketa');
+  return response.json();
+};
+
+export const resolveDisputeRefund = async (projectId) => {
+  const response = await fetch(`${BASE_URL}/admin/escrows/${projectId}/refund`, { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal melakukan refund');
+  return data;
+};
+
+export const resolveDisputeForceRelease = async (projectId) => {
+  const response = await fetch(`${BASE_URL}/admin/escrows/${projectId}/force-release`, { method: 'POST' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mencairkan dana ke mitra');
+  return data;
 };

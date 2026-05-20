@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import NotificationBell from '../components/NotificationBell'; // <--- 1. IMPORT NOTIFICATION BELL
 
 export default function ClientLayout() {
   const location = useLocation();
@@ -75,10 +76,15 @@ export default function ClientLayout() {
         <header className="bg-white h-20 border-b-8 border-black flex items-center justify-between px-8 sticky top-0 z-10">
           <div className="flex items-center gap-3 border-4 border-black px-3 py-1 bg-green-400 font-black text-sm uppercase">
              <div className="w-3 h-3 bg-black rounded-full animate-ping"></div>
-             
+             ONLINE
           </div>
 
-          <div className="flex items-center gap-4 uppercase font-black">
+          {/* 2. HEADER KANAN (LONCENG NOTIFIKASI + PROFIL) */}
+          <div className="flex items-center gap-6 uppercase font-black">
+             
+             {/* TEMPATKAN KOMPONEN LONCENG DI SINI */}
+             <NotificationBell />
+
              <div className="text-right flex flex-col justify-center">
                 <span className="text-sm font-black leading-tight">{userId}</span>
                 <span className="text-xs font-bold text-blue-600 leading-tight">AKUN TERVERIFIKASI</span>

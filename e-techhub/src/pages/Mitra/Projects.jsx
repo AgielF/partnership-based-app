@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { getMitraProjects, signMitraContract, updateMitraProgress } from '../../services/api';
+// IMPORT PROGRESS MODAL
+import ProgressModal from '../../components/ProgressModal';
 
 export default function MitraProjects() {
   const [projects, setProjects] = useState([]);
   const [isProcessing, setIsProcessing] = useState(null);
-  
-  // State untuk menyimpan teks input progres dari masing-masing proyek
   const [progressInputs, setProgressInputs] = useState({}); 
+  
+  // STATE UNTUK PROGRESS MODAL
+  const [activeProgressProject, setActiveProgressProject] = useState(null);
   
   const mitraId = localStorage.getItem('user_id');
 
@@ -24,7 +27,6 @@ export default function MitraProjects() {
     fetchProjects();
   }, [mitraId]);
 
-  // FUNGSI 1: SIGN KONTRAK
   const handleSignContract = async (projectId, clientName) => {
     const legalWarning = `PERINGATAN HUKUM (CLICK-WRAP AGREEMENT):\n\nDengan menekan OK, Anda mengikatkan diri secara hukum untuk menyelesaikan Proyek ID: ${projectId} milik Klien (${clientName}) sesuai tenggat waktu dan anggaran yang disepakati (Pasal 1320 KUHPerdata).\n\nApakah Anda siap mengesahkan dokumen SPK ini?`;
     
@@ -42,9 +44,7 @@ export default function MitraProjects() {
     }
   };
 
-  // FUNGSI 2: KIRIM PROGRES / AJUKAN UAT
   const handleSubmitProgress = async (projectId, isUat = false) => {
-    // Jika tombol UAT ditekan, gunakan teks bawaan. Jika tombol progres biasa, ambil dari input box.
     const textToSubmit = isUat 
         ? "PENGERJAAN SELESAI. MENGAJUKAN UAT / PENINJAUAN AKHIR KEPADA KLIEN." 
         : progressInputs[projectId];
@@ -53,16 +53,15 @@ export default function MitraProjects() {
         return alert("Teks progres tidak boleh kosong!");
     }
 
-    if (isUat && !window.confirm("YAKIN AJUKAN UAT? Status proyek akan terkunci dan beralih ke Klien/Admin untuk peninjauan akhir.")) {
+    if (isUat && !window.confirm("YAKIN AJUKAN UAT SECARA MANUAL? Status proyek akan terkunci. Disarankan mengajukan UAT melalui penyerahan TAHAP 3 di dalam panel BUKTI KERJA (MILESTONES).")) {
         return;
     }
 
     setIsProcessing(projectId);
     try {
       await updateMitraProgress(projectId, mitraId, textToSubmit);
-      alert(isUat ? "PENGAJUAN UAT BERHASIL TERKIRIM!" : "PROGRES BERHASIL DICATAT!");
+      alert(isUat ? "PENGAJUAN UAT MANUAL BERHASIL TERKIRIM!" : "LOG TEKS PROGRES BERHASIL DICATAT!");
       
-      // Bersihkan form text input
       setProgressInputs(prev => ({ ...prev, [projectId]: '' }));
       fetchProjects(); 
     } catch (error) {
@@ -77,10 +76,23 @@ export default function MitraProjects() {
   };
 
   return (
-    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
+    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black relative">
+      
+      {/* TAMPILKAN MODAL PELACAK PROGRES TINGKAT INDUSTRI */}
+      {activeProgressProject && (
+        <ProgressModal 
+          projectId={activeProgressProject} 
+          userRole="mitra" // Penting: Memberitahu modal bahwa ini adalah Mitra (Bisa Submit Link Bukti Kerja)
+          onClose={() => {
+              setActiveProgressProject(null);
+              fetchProjects(); // Refresh UI jika ada milestone baru yang dikirim
+          }} 
+        />
+      )}
+
       <div className="border-b-8 border-black pb-6 mb-10">
         <h1 className="text-5xl font-black uppercase tracking-tighter">RUANG KERJA (SPK)</h1>
-        <p className="text-sm font-bold text-gray-600 uppercase mt-2">LEGALITAS DOKUMEN & PELAPORAN PROGRES MITRA</p>
+        <p className="text-sm font-bold text-gray-600 uppercase mt-2">LEGALITAS DOKUMEN & PENYERAHAN BUKTI KERJA MILESTONE</p>
       </div>
 
       <div className="space-y-8">
@@ -90,8 +102,7 @@ export default function MitraProjects() {
           </div>
         ) : projects.map((p) => {
           
-          // Logika Evaluasi Status
-          const isAlreadySigned = p.current_milestone?.includes('disetujui Mitra') || p.status === 'MENUNGGU UAT' || p.status === 'COMPLETED';
+          const isAlreadySigned = p.current_milestone?.includes('disetujui Mitra') || p.status === 'MENUNGGU UAT' || p.status === 'COMPLETED' || p.status === 'SEDANG DIKERJAKAN';
           const isWaitingUat = p.status === 'MENUNGGU UAT';
           const isCompleted = p.status === 'COMPLETED';
 
@@ -118,9 +129,25 @@ export default function MitraProjects() {
               {/* BAGIAN KANAN: KENDALI WORKSPACE (SIGN & PROGRESS) */}
               <div className="md:w-2/3 p-6 flex flex-col justify-between">
                 <div>
-                  <h3 className="text-lg font-black uppercase border-b-4 border-black pb-2 mb-4">STATUS LINI MASA PENGADAAN</h3>
+                  <div className="flex justify-between items-center border-b-4 border-black pb-2 mb-4">
+                     <h3 className="text-lg font-black uppercase">STATUS LINI MASA PENGADAAN</h3>
+                     
+                     {/* ==========================================
+                         TOMBOL BARU: BUKA MODAL PENYERAHAN BUKTI
+                         Hanya muncul jika kontrak sudah ditandatangani
+                         ========================================== */}
+                     {isAlreadySigned && !isCompleted && (
+                         <button 
+                           onClick={() => setActiveProgressProject(p.id)}
+                           className="bg-green-300 text-black border-4 border-black px-4 py-1 font-black uppercase text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] hover:bg-green-400 active:translate-y-1 active:shadow-none"
+                         >
+                           📤 UNGGAH BUKTI KERJA (MILESTONES)
+                         </button>
+                     )}
+                  </div>
+
                   <div className={`p-4 border-4 border-black font-bold text-sm uppercase mb-6 ${isCompleted ? 'bg-green-300' : isWaitingUat ? 'bg-blue-300' : 'bg-gray-100'}`}>
-                     JEJAK AUDIT TERAKHIR: <br/> 
+                     JEJAK AUDIT TEXT-LOG TERAKHIR: <br/> 
                      <span className="text-lg font-black mt-1 block">{p.current_milestone || "MENUNGGU PERSETUJUAN"}</span>
                   </div>
                 </div>
@@ -132,7 +159,7 @@ export default function MitraProjects() {
                   {!isAlreadySigned && !isCompleted && (
                     <div className="bg-gray-50 border-4 border-black border-dashed p-4 text-center">
                       <p className="text-sm font-bold uppercase mb-4 text-red-600">
-                        ⚠️ Anda belum bisa melaporkan progres sebelum kontrak hukum disetujui.
+                        ⚠️ Anda belum bisa mengakses Milestone pengerjaan sebelum kontrak hukum disetujui.
                       </p>
                       <button 
                         onClick={() => handleSignContract(p.id, p.client_id)}
@@ -150,12 +177,12 @@ export default function MitraProjects() {
                   {isAlreadySigned && !isWaitingUat && !isCompleted && (
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-xs font-black uppercase mb-2">LAPORKAN PROGRES HARIAN / MILESTONE:</label>
+                        <label className="block text-xs font-black uppercase mb-2">UPDATE LOG TEKS MANUAL (OPSIONAL):</label>
                         <textarea 
                           value={progressInputs[p.id] || ''}
                           onChange={(e) => handleInputChange(p.id, e.target.value)}
-                          placeholder="Ketik progres pekerjaan Anda hari ini (Contoh: Fitur login sudah selesai dibuat...)"
-                          className="w-full border-4 border-black p-3 font-bold h-24 resize-none"
+                          placeholder="Ketik progres singkat jika Anda tidak mengunggah file bukti di panel Milestone..."
+                          className="w-full border-4 border-black p-3 font-bold h-16 resize-none"
                         ></textarea>
                       </div>
                       
@@ -165,7 +192,7 @@ export default function MitraProjects() {
                           disabled={isProcessing === p.id}
                           className="sm:w-1/2 bg-white text-black border-4 border-black py-3 font-black uppercase hover:bg-yellow-300 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
                         >
-                          {isProcessing === p.id ? 'MENGIRIM...' : '📝 UPDATE PROGRES'}
+                          {isProcessing === p.id ? 'MENGIRIM...' : '📝 KIRM LOG TEKS SAJA'}
                         </button>
                         
                         <button 
@@ -173,7 +200,7 @@ export default function MitraProjects() {
                           disabled={isProcessing === p.id}
                           className="sm:w-1/2 bg-black text-white border-4 border-black py-3 font-black uppercase hover:bg-gray-800 transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:translate-y-1 active:shadow-none"
                         >
-                          {isProcessing === p.id ? 'MEMPROSES...' : '🚀 AJUKAN UAT (SELESAI)'}
+                          {isProcessing === p.id ? 'MEMPROSES...' : '🚀 PAKSA AJUKAN UAT MANUAL'}
                         </button>
                       </div>
                     </div>
@@ -184,9 +211,6 @@ export default function MitraProjects() {
                     <div className="flex flex-col sm:flex-row gap-4">
                        <button disabled className="w-full bg-gray-300 text-gray-600 border-4 border-black py-4 font-black uppercase cursor-not-allowed">
                           🔒 {isCompleted ? 'PROYEK TELAH SELESAI' : 'MENUNGGU VALIDASI UAT KLIEN'}
-                       </button>
-                       <button onClick={() => alert("Mengunduh SPK PDF...")} className="w-full bg-white text-black border-4 border-black py-4 font-black uppercase shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-gray-100 active:translate-y-1 active:shadow-none">
-                          📄 UNDUH DOKUMEN SPK/BAST
                        </button>
                     </div>
                   )}

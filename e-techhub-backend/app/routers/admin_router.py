@@ -7,11 +7,13 @@ from pydantic import BaseModel
 import uuid
 import os
 import glob
+from datetime import datetime # <-- PASTIKAN INI DI-IMPORT
 
 from app.core.security import get_password_hash 
 from app.core.database import get_db
 from app.models import domain_models as models
 from app.schemas import response_schemas as schemas
+from app.routers.notification_router import notif_manager # <-- IMPORT SISTEM NOTIFIKASI GLOBAL
 
 router = APIRouter(prefix="/api/admin", tags=["Admin"])
 
@@ -86,22 +88,40 @@ def get_mitra_ktp_image(mitra_id: str):
     return FileResponse(latest_file)
 
 @router.put("/kyc/{mitra_id}/verify")
-def verify_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
+async def verify_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
     mitra = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
     if not mitra:
         raise HTTPException(status_code=404, detail="Mitra tidak ditemukan")
     mitra.kyc_status = "VERIFIED"
     db.commit()
+
+    # NOTIFIKASI KE MITRA BAHWA KYC BERHASIL
+    await notif_manager.send_personal_notification(
+        user_id=mitra_id,
+        title="✅ KYC DIVERIFIKASI",
+        message="Selamat! Identitas Anda telah diverifikasi oleh Admin. Anda kini bisa mengambil proyek.",
+        db=db
+    )
+    
     return {"status": "success", "message": f"KYC Mitra {mitra_id} berhasil diverifikasi."}
 
 @router.put("/kyc/{mitra_id}/reject")
-def reject_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
+async def reject_mitra_kyc(mitra_id: str, db: Session = Depends(get_db)):
     mitra_prof = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
     if not mitra_prof:
         raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan.")
     
     mitra_prof.kyc_status = "REJECTED"
     db.commit()
+
+    # NOTIFIKASI KE MITRA BAHWA KYC DITOLAK
+    await notif_manager.send_personal_notification(
+        user_id=mitra_id,
+        title="❌ KYC DITOLAK",
+        message="Dokumen KTP yang Anda unggah tidak valid/buram. Silakan unggah ulang.",
+        db=db
+    )
+    
     return {"status": "success", "message": "KTP ditolak. Mitra diinstruksikan untuk mengunggah ulang."}
 
 @router.put("/users/{user_id}/ban")
@@ -156,7 +176,7 @@ def topup_wallet_physical(payload: dict, db: Session = Depends(get_db)):
     return {"status": "success", "message": f"Dana ditambahkan ke {user.name}"}
 
 # ==========================================
-# PILAR 3: ARBITRASE & MANAJEMEN ESCROW
+# PILAR 3: ARBITRASE & MANAJEMEN ESCROW (FITUR MEJA HIJAU BARU)
 # ==========================================
 @router.get("/escrows")
 def get_active_escrows(db: Session = Depends(get_db)):
@@ -171,6 +191,101 @@ def get_active_escrows(db: Session = Depends(get_db)):
         })
     return result
 
+# FUNGSI BARU UNTUK HALAMAN ADMIN ARBITRASE
+@router.get("/escrows/disputed")
+def get_disputed_projects(db: Session = Depends(get_db)):
+    """Menarik semua proyek dengan status DISPUTED untuk disidangkan Admin"""
+    disputed = db.query(models.Project).filter(models.Project.status == "DISPUTED").all()
+    
+    result = []
+    for p in disputed:
+        result.append({
+            "id": p.id,
+            "title": p.title,
+            "client_id": p.client_id,
+            "mitra_id": p.mitra_id,
+            "budget": float(p.budget),
+            "current_milestone": p.current_milestone
+        })
+    return result
+
+# FUNGSI LAMA (DIPERTAHANKAN TAPI DIPERBAIKI JADI ASYNC UNTUK NOTIFIKASI)
+@router.post("/escrows/{project_id}/refund")
+async def resolve_dispute_refund_escrow(project_id: str, db: Session = Depends(get_db)):
+    """Admin memenangkan Klien. Uang dari Escrow dikembalikan ke Saldo Klien."""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project or project.status in ["COMPLETED", "CANCELLED"]:
+        raise HTTPException(status_code=400, detail="Proyek tidak valid untuk di-refund")
+
+    wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.client_id).first()
+    budget_decimal = Decimal(str(project.budget))
+    
+    wallet.escrow_balance -= budget_decimal
+    wallet.balance += budget_decimal
+    
+    project.status = "CANCELLED"
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ⚖️ KEPUTUSAN ADMIN: Sengketa dimenangkan Klien. Dana di-refund."
+    
+    db.add(models.Transaction(
+        id=f"TRX-RFD-{uuid.uuid4().hex[:4].upper()}", user_id=project.client_id, project_id=project.id,
+        transaction_type="PENGEMBALIAN DANA (FORCED REFUND SENGKETA)", amount=budget_decimal, status="SUCCESS"
+    ))
+    db.commit()
+
+    # NOTIFIKASI KE KEDUA BELAH PIHAK
+    await notif_manager.send_personal_notification(project.client_id, "⚖️ SENGKETA SELESAI", f"Admin memenangkan Anda. Dana Rp {float(budget_decimal):,.0f} dikembalikan ke saldo utama.", db)
+    if project.mitra_id:
+        await notif_manager.send_personal_notification(project.mitra_id, "⚖️ SENGKETA SELESAI", f"Admin memenangkan Klien. Proyek '{project.title}' dibatalkan secara sepihak.", db)
+
+    return {"status": "success", "message": "Dana Escrow berhasil dikembalikan (di-refund) ke dompet Klien."}
+
+# FUNGSI BARU (PAKSA CAIR KE MITRA)
+@router.post("/escrows/{project_id}/force-release")
+async def resolve_dispute_force_release_escrow(project_id: str, db: Session = Depends(get_db)):
+    """Admin memenangkan Mitra. Uang dari Escrow dipaksa cair ke Mitra."""
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.status == "DISPUTED").first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyek sengketa tidak ditemukan atau bukan berstatus DISPUTED.")
+
+    budget_decimal = Decimal(str(project.budget))
+    client_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.client_id).first()
+    
+    # 1. Potong Escrow Klien
+    client_wallet.escrow_balance -= budget_decimal
+
+    # 2. Tambah Saldo Mitra
+    mitra_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.mitra_id).first()
+    if not mitra_wallet:
+        mitra_wallet = models.Wallet(user_id=project.mitra_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
+        db.add(mitra_wallet)
+    mitra_wallet.balance += budget_decimal
+
+    # Catat Transaksi
+    db.add(models.Transaction(
+        id=f"TRX-OUT-{uuid.uuid4().hex[:4].upper()}", user_id=project.client_id, project_id=project.id,
+        transaction_type="FORCE RELEASE (SENGKETA)", amount=-budget_decimal, status="SUCCESS"
+    ))
+    db.add(models.Transaction(
+        id=f"TRX-IN-{uuid.uuid4().hex[:4].upper()}", user_id=project.mitra_id, project_id=project.id,
+        transaction_type="PENERIMAAN DANA (MENANG SENGKETA)", amount=budget_decimal, status="SUCCESS"
+    ))
+
+    # Tambah skor proyek mitra
+    mitra_prof = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == project.mitra_id).first()
+    if mitra_prof:
+        mitra_prof.projects_completed = (mitra_prof.projects_completed or 0) + 1
+
+    project.status = "COMPLETED"
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ⚖️ KEPUTUSAN ADMIN: Sengketa dimenangkan Mitra. Dana dicairkan paksa."
+    db.commit()
+
+    # NOTIFIKASI KE KEDUA BELAH PIHAK
+    await notif_manager.send_personal_notification(project.client_id, "⚖️ SENGKETA SELESAI", f"Admin memenangkan Mitra. Dana Escrow proyek '{project.title}' dicairkan paksa.", db)
+    await notif_manager.send_personal_notification(project.mitra_id, "⚖️ SENGKETA SELESAI", f"Admin memenangkan Anda! Dana Rp {float(budget_decimal):,.0f} telah masuk ke saldo.", db)
+
+    return {"status": "success", "message": "Dana berhasil dicairkan paksa ke Mitra."}
+
+# FUNGSI LAMA (DIPERTAHANKAN UNTUK KOMPATIBILITAS MASA LALU JIKA PERLU)
 @router.put("/escrows/{project_id}/dispute")
 def mark_project_disputed(project_id: str, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
@@ -181,26 +296,6 @@ def mark_project_disputed(project_id: str, db: Session = Depends(get_db)):
     db.commit()
     return {"status": "success", "message": "Proyek ditangguhkan untuk investigasi."}
 
-@router.post("/escrows/{project_id}/refund")
-def refund_escrow(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
-    if not project or project.status in ["COMPLETED", "CANCELLED"]:
-        raise HTTPException(status_code=400, detail="Proyek tidak valid untuk di-refund")
-
-    wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.client_id).first()
-    budget_decimal = Decimal(str(project.budget))
-    wallet.escrow_balance -= budget_decimal
-    wallet.balance += budget_decimal
-    
-    project.status = "CANCELLED"
-    project.current_milestone = "Dibatalkan oleh Admin (Forced Refund)"
-    
-    db.add(models.Transaction(
-        id=f"TRX-RFD-{uuid.uuid4().hex[:4].upper()}", user_id=project.client_id, project_id=project.id,
-        transaction_type="PENGEMBALIAN DANA (FORCED REFUND)", amount=budget_decimal, status="SUCCESS"
-    ))
-    db.commit()
-    return {"status": "success", "message": "Dana Escrow berhasil dikembalikan ke dompet Klien."}
 
 # ==========================================
 # PILAR 4 & MODUL LOKET: DROP-OFF & BAST (DENGAN KOMISI)
@@ -217,7 +312,7 @@ def get_physical_projects(db: Session = Depends(get_db)):
     return result
 
 @router.post("/dropoff/receive")
-def receive_dropoff_device(payload: DropOffCreate, db: Session = Depends(get_db)):
+async def receive_dropoff_device(payload: DropOffCreate, db: Session = Depends(get_db)):
     budget_decimal = Decimal(str(payload.budget))
     wallet = db.query(models.Wallet).filter(models.Wallet.user_id == payload.client_id).first()
     if not wallet or wallet.balance < budget_decimal:
@@ -229,7 +324,7 @@ def receive_dropoff_device(payload: DropOffCreate, db: Session = Depends(get_db)
     proj_id = f"JOB-HW-{uuid.uuid4().hex[:4].upper()}"
     new_project = models.Project(
         id=proj_id, client_id=payload.client_id, title=payload.title, description=payload.description,
-        service_type="SERVIS HARDWARE", budget=budget_decimal, status="OPEN", current_milestone="Perangkat Diterima"
+        service_type="SERVIS HARDWARE", budget=budget_decimal, status="OPEN", current_milestone="Perangkat Diterima oleh Admin"
     )
     db.add(new_project)
     db.add(models.Transaction(
@@ -237,6 +332,12 @@ def receive_dropoff_device(payload: DropOffCreate, db: Session = Depends(get_db)
         transaction_type="PENAHANAN ESCROW (DROP-OFF)", amount=-budget_decimal, status="SUCCESS"
     ))
     db.commit()
+
+    # NOTIFIKASI KE KLIEN SAAT ADMIN MENERIMA BARANG DI KASIR LOKET E-TECHHUB
+    await notif_manager.send_personal_notification(
+        payload.client_id, "📦 PERANGKAT DITERIMA", f"Perangkat untuk proyek '{payload.title}' telah diterima di Loket E-TechHub.", db
+    )
+
     return {"status": "success"}
 
 @router.put("/dropoff/{project_id}/uat")

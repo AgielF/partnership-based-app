@@ -7,6 +7,7 @@ from app.models import domain_models as models
 from app.schemas import response_schemas as schemas
 from decimal import Decimal
 from datetime import datetime
+from app.routers.notification_router import notif_manager # <-- IMPORT NOTIFICATION ENGINE GLOBAL
 
 import os
 import shutil
@@ -14,9 +15,9 @@ import uuid
 
 router = APIRouter(prefix="/api/mitra", tags=["Mitra"])
 
-# ==========================================
+# =========================================================================
 # SKEMA PYDANTIC (INPUT VALIDATION)
-# ==========================================
+# =========================================================================
 class TakeJobRequest(BaseModel):
     mitra_id: str
 
@@ -29,7 +30,6 @@ class ProfileUpdateRequest(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
-# Tambahkan di bagian atas file bersama skema lain
 class ProgressUpdate(BaseModel):
     mitra_id: str
     milestone_text: str
@@ -40,17 +40,80 @@ class ClientPublicProfile(BaseModel):
     is_payment_verified: bool
     total_projects_posted: int
 
+class DeliverableSubmitPayload(BaseModel):
+    submission_link: str
+    description: Optional[str] = None
+
+class QnASubmitPayload(BaseModel):
+    user_id: str
+    message: str
+
+# =========================================================================
+# PAPAN DISKUSI TERBUKA / FORUM Q&A (GAYA FREELANCER.COM)
+# =========================================================================
+@router.get("/projects/{project_id}/qna")
+def get_project_qna(project_id: str, db: Session = Depends(get_db)):
+    """Mengambil seluruh riwayat diskusi publik untuk papan proyek tertentu"""
+    qna_list = db.query(models.ProjectQnA).filter(
+        models.ProjectQnA.project_id == project_id
+    ).order_by(models.ProjectQnA.created_at.asc()).all()
+    
+    result = []
+    for qna in qna_list:
+        # Menyamarkan nama jika role-nya adalah klien/pemilik proyek asli
+        is_client = qna.user.role == 'klien'
+        name_display = f"{qna.user.name} (KLIEN/PEMILIK)" if is_client else f"Mitra: {qna.user.name}"
+        
+        result.append({
+            "id": qna.id,
+            "user_id": qna.user_id,
+            "name": name_display,
+            "is_client": is_client,
+            "message": qna.message,
+            "timestamp": qna.created_at.strftime('%d/%m %H:%M')
+        })
+    return result
+
+@router.post("/projects/{project_id}/qna")
+async def submit_project_qna(project_id: str, payload: QnASubmitPayload, db: Session = Depends(get_db)):
+    """Memposting pertanyaan/jawaban publik sekaligus memicu alert real-time ke Klien"""
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Proyek tidak ditemukan.")
+        
+    new_qna = models.ProjectQnA(
+        project_id=project_id,
+        user_id=payload.user_id,
+        message=payload.message
+    )
+    db.add(new_qna)
+    db.commit()
+
+    # TRIGGER REAL-TIME NOTIFIKASI: Beri tahu Klien jika ada Mitra yang mengirim pertanyaan/respons baru
+    if payload.user_id != project.client_id:
+        await notif_manager.send_personal_notification(
+            user_id=project.client_id,
+            title="❓ PERTANYAAN BARU DI PAPAN Q&A",
+            message=f"Ada tanggapan/pertanyaan masuk untuk proyek Anda: '{project.title}'.",
+            db=db
+        )
+        
+    return {"status": "success", "message": "Pesan berhasil dipublikasikan ke papan Q&A publik."}
+
+# =========================================================================
+# PROFIL PUBLIK KLIEN (AKSES OLEH MITRA DENGAN SYNC SYNTAX 'klien')
+# =========================================================================
 @router.get("/clients/{client_id}/public", response_model=ClientPublicProfile)
 def get_client_public_profile(client_id: str, db: Session = Depends(get_db)):
-    client_data = db.query(models.User).filter(models.User.id == client_id, models.User.role == 'client').first()
+    client_data = db.query(models.User).filter(
+        models.User.id == client_id, 
+        models.User.role == 'klien'  # Cocok secara presisi dengan dump data MySQL lokal Anda
+    ).first()
     
     if not client_data:
-        raise HTTPException(status_code=404, detail="Klien tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Klien tidak ditemukan di database")
 
-    # Cek apakah klien pernah top-up (sebagai bukti kredibilitas/Payment Verified)
     has_wallet_balance = db.query(models.Wallet).filter(models.Wallet.user_id == client_id, models.Wallet.balance > 0).first()
-    
-    # Hitung riwayat klien memposting kerjaan
     projects_count = db.query(models.Project).filter(models.Project.client_id == client_id).count()
 
     def mask_client_name(name: str) -> str:
@@ -64,9 +127,9 @@ def get_client_public_profile(client_id: str, db: Session = Depends(get_db)):
         "total_projects_posted": projects_count
     }
 
-# ==========================================
-# BURSA KERJA (JOBS)
-# ==========================================
+# =========================================================================
+# BURSA KERJA (JOBS LISTING)
+# =========================================================================
 @router.get("/jobs", response_model=List[schemas.JobListing])
 def get_available_jobs(db: Session = Depends(get_db)):
     open_projects = db.query(models.Project).filter(models.Project.status == 'OPEN').all()
@@ -80,6 +143,7 @@ def get_available_jobs(db: Session = Depends(get_db)):
         result.append({
             "id": proj.id,
             "title": proj.title,
+            "client_id": proj.client_id, # Lolos verifikasi schema aman ke frontend
             "client": proj.client.name if proj.client else "Klien Anonim",
             "tags": tags,
             "type": proj.service_type,
@@ -89,9 +153,9 @@ def get_available_jobs(db: Session = Depends(get_db)):
         })
     return result
 
-# ==========================================
-# PENGAMBILAN PROYEK & MASA PERCOBAAN
-# ==========================================
+# =========================================================================
+# PENGAMBILAN PROYEK & GENERASI OTOMATIS MILESTONE
+# =========================================================================
 MAX_PROBATION_BUDGET = 1000000.00  # Rp 1.000.000
 
 @router.post("/jobs/{project_id}/take")
@@ -104,7 +168,6 @@ def take_project(project_id: str, payload: TakeJobRequest, db: Session = Depends
     if not mitra_prof or not project:
         raise HTTPException(status_code=404, detail="Data tidak ditemukan.")
     
-    # Cek kepatuhan KYC
     if mitra_prof.kyc_status == "BANNED":
         raise HTTPException(status_code=403, detail="AKSES DITOLAK: Akun Anda telah diblokir permanen.")
     elif mitra_prof.kyc_status != "VERIFIED":
@@ -123,23 +186,44 @@ def take_project(project_id: str, payload: TakeJobRequest, db: Session = Depends
         if active_job_count >= 1:
             raise HTTPException(
                 status_code=400, 
-                detail=f"BATAS KUOTA AKTIF: Karena Anda belum menyelesaikan 10 proyek (Saat ini: {mitra_prof.projects_completed}), Anda hanya diizinkan mengerjakan 1 proyek dalam satu waktu."
+                detail=f"BATAS KUOTA AKTIF: Anda hanya diizinkan mengerjakan 1 proyek dalam satu waktu pada masa percobaan."
             )
         
         if mitra_prof.projects_completed == 0 and float(project.budget) > MAX_PROBATION_BUDGET:
             raise HTTPException(
                 status_code=400, 
-                detail=f"BATAS BUDGET PERCOBAAN: Untuk proyek pertama Anda, dilarang mengambil kontrak dengan nilai di atas Rp {MAX_PROBATION_BUDGET:,.0f}."
+                detail=f"BATAS BUDGET PERCOBAAN: Maksimal nilai proyek pertama Anda adalah Rp {MAX_PROBATION_BUDGET:,.0f}."
             )
 
-    # Eksekusi Assignment
+    # Eksekusi Penetapan Kerja (Assignment)
     project.mitra_id = mitra_id
     project.status = "SEDANG DIKERJAKAN"
-    project.current_milestone = "Kontrak disetujui. Menunggu pengerjaan teknis oleh mitra."
+    project.current_milestone = "Kontrak aktif. Milestone pengerjaan resmi diterbitkan."
+
+    # -------------------------------------------------------------------------
+    # SEEDING AUTOMATION: Bangun 3 Lini Masa Kerja Otomatis (Standar Dokumen Industri)
+    # -------------------------------------------------------------------------
+    default_milestones = [
+        {"title": "Tahap 1: Desain & Arsitektur", "desc": "Penyerahan mock-up UI/UX atau skema rancangan IoT hardware."},
+        {"title": "Tahap 2: Implementasi Sistem", "desc": "Pengembangan fungsionalitas inti, integrasi API, atau perakitan hardware."},
+        {"title": "Tahap 3: Hasil Akhir & Dokumentasi", "desc": "Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik."}
+    ]
+    
+    for milestone in default_milestones:
+        new_deliverable = models.ProjectDeliverable(
+            project_id=project_id,
+            title=milestone["title"],
+            description=milestone["desc"],
+            status="PENDING"
+        )
+        db.add(new_deliverable)
     
     db.commit()
-    return {"status": "success", "message": "Proyek berhasil diambil. Selamat bekerja!"}
+    return {"status": "success", "message": "Proyek berhasil diambil. Rencana kerja resmi dibuat!"}
 
+# =========================================================================
+# DASHBOARD & ULASAN PERFORMA
+# =========================================================================
 @router.post("/projects/{project_id}/review")
 def submit_project_review(project_id: str, payload: ReviewRequest, db: Session = Depends(get_db)):
     rating = payload.rating
@@ -151,14 +235,13 @@ def submit_project_review(project_id: str, payload: ReviewRequest, db: Session =
     mitra_prof = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == project.mitra_id).first()
     
     if mitra_prof:
-        # Auto-Ban Seleksi Alam
         if mitra_prof.projects_completed < 10 and rating == 1:
             mitra_prof.kyc_status = "BANNED"
-            project.current_milestone = "SISTEM BLACKLIST: Mitra di-banned karena performa sangat buruk di masa percobaan."
+            project.current_milestone = "SISTEM BLACKLIST: Mitra di-banned karena performa buruk di masa percobaan."
             db.commit()
             raise HTTPException(
                 status_code=403, 
-                detail="SISTEM PERINGATAN KEPATUHAN: Akun mitra otomatis dibanned karena mendapatkan rating bintang 1 pada masa probation."
+                detail="SISTEM PERINGATAN KEPATUHAN: Akun mitra otomatis dibanned karena rating bintang 1 pada masa probation."
             )
             
         if rating > 1:
@@ -169,9 +252,6 @@ def submit_project_review(project_id: str, payload: ReviewRequest, db: Session =
     db.commit()
     return {"status": "success", "message": "Ulasan berhasil disimpan."}
 
-# ==========================================
-# DASHBOARD & PROYEK MITRA
-# ==========================================
 @router.get("/{mitra_id}/projects")
 def get_mitra_projects(mitra_id: str, db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.mitra_id == mitra_id).all()
@@ -190,9 +270,9 @@ def get_mitra_projects(mitra_id: str, db: Session = Depends(get_db)):
         })
     return result
 
-# ==========================================
-# DOMPET & TRANSAKSI MITRA
-# ==========================================
+# =========================================================================
+# DOMPET & PROFIL MITRA
+# =========================================================================
 @router.get("/{mitra_id}/wallet")
 def get_mitra_wallet(mitra_id: str, db: Session = Depends(get_db)):
     wallet = db.query(models.Wallet).filter(models.Wallet.user_id == mitra_id).first()
@@ -221,13 +301,9 @@ def get_mitra_wallet(mitra_id: str, db: Session = Depends(get_db)):
         "transactions": trx_list
     }
 
-# ==========================================
-# PROFIL MITRA (BACA & UBAH)
-# ==========================================
 @router.get("/{mitra_id}/profile")
 def get_mitra_profile(mitra_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
-    
     if not profile:
         raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan di database.")
     
@@ -254,7 +330,6 @@ def update_mitra_profile(mitra_id: str, payload: ProfileUpdateRequest, db: Sessi
     if not profile:
         raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan.")
     
-    # Hanya update kolom yang diizinkan (Non-Sensitif)
     profile.specialty_role = payload.specialty_role
     profile.hourly_rate_or_fee = payload.hourly_rate_or_fee
     
@@ -265,9 +340,9 @@ def update_mitra_profile(mitra_id: str, payload: ProfileUpdateRequest, db: Sessi
     db.commit()
     return {"status": "success", "message": "Profil berhasil diperbarui!"}
 
-# ==========================================
-# UNGGAH DOKUMEN KYC (KTP)
-# ==========================================
+# =========================================================================
+# OPERASIONAL DOKUMEN (KYC & SPK SIGNATURE)
+# =========================================================================
 UPLOAD_DIR = "uploads/ktp"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
@@ -287,20 +362,12 @@ async def upload_ktp(mitra_id: str, file: UploadFile = File(...), db: Session = 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    # Catatan: Asumsikan ktp_image_url belum ada di model MySQL saat ini.
-    # Kita hanya mengubah state KYC.
     mitra_prof.kyc_status = "PENDING"
-    
     db.commit()
-    
     return {"status": "success", "message": "KTP berhasil diunggah. Menunggu verifikasi Admin."}
 
-# ==========================================
-# E-CONTRACT / PERSETUJUAN MITRA
-# ==========================================
 @router.put("/projects/{project_id}/sign")
 def sign_mitra_contract(project_id: str, mitra_id: str, db: Session = Depends(get_db)):
-    # 1. Pastikan proyek ini benar-benar milik Mitra yang sedang login
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
         models.Project.mitra_id == mitra_id
@@ -309,17 +376,13 @@ def sign_mitra_contract(project_id: str, mitra_id: str, db: Session = Depends(ge
     if not project:
         raise HTTPException(status_code=404, detail="Proyek atau kontrak tidak ditemukan.")
 
-    # 2. Cegah modifikasi jika proyek sudah selesai/batal
     if project.status in ["COMPLETED", "CANCELLED"]:
-        raise HTTPException(status_code=400, detail="Kontrak sudah kedaluwarsa atau tidak bisa ditandatangani.")
+        raise HTTPException(status_code=400, detail="Kontrak sudah kedaluwarsa.")
 
-    # 3. Catat jejak audit digital ke dalam milestone
     project.current_milestone = f"Kontrak disetujui Mitra via Click-Wrap pada {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} WIB."
-
     db.commit()
     return {"status": "success", "message": "Click-Wrap Agreement berhasil disahkan secara hukum oleh Mitra."}
 
-# Tambahkan di bawah endpoint /sign (di bagian E-CONTRACT)
 @router.put("/projects/{project_id}/progress")
 def update_project_progress(project_id: str, payload: ProgressUpdate, db: Session = Depends(get_db)):
     project = db.query(models.Project).filter(
@@ -333,12 +396,71 @@ def update_project_progress(project_id: str, payload: ProgressUpdate, db: Sessio
     if project.status in ["COMPLETED", "CANCELLED"]:
         raise HTTPException(status_code=400, detail="Proyek sudah ditutup, tidak bisa mengubah progres.")
 
-    # Update teks jejak audit
     project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] {payload.milestone_text}"
 
-    # Auto-escalate jika Mitra menyatakan selesai / minta UAT
     if "UAT" in payload.milestone_text.upper() or "SELESAI" in payload.milestone_text.upper():
         project.status = "MENUNGGU UAT"
 
     db.commit()
     return {"status": "success", "message": "Progres pekerjaan berhasil diperbarui!"}
+
+# =========================================================================
+# REKAYASA PENYERAHAN INTEGRASI BUKTI KERJA (WORKSPACE BUKTI KERJA)
+# =========================================================================
+@router.get("/projects/{project_id}/deliverables")
+def get_mitra_project_deliverables(project_id: str, db: Session = Depends(get_db)):
+    """Menarik seluruh daftar checklist penyerahan artefak kerja milik Mitra"""
+    deliverables = db.query(models.ProjectDeliverable).filter(
+        models.ProjectDeliverable.project_id == project_id
+    ).order_by(models.ProjectDeliverable.id.asc()).all()
+    return deliverables
+
+@router.put("/projects/{project_id}/deliverables/{deliverable_id}/submit")
+async def submit_milestone_work(project_id: str, deliverable_id: int, payload: DeliverableSubmitPayload, db: Session = Depends(get_db)):
+    """Mitra mengirimkan dokumen spesifikasi/tautan repositori kerja serta menyenggol Klien via WebSocket"""
+    deliverable = db.query(models.ProjectDeliverable).filter(
+        models.ProjectDeliverable.id == deliverable_id,
+        models.ProjectDeliverable.project_id == project_id
+    ).first()
+
+    if not deliverable:
+        raise HTTPException(status_code=404, detail="Item pengerjaan proyek tidak ditemukan.")
+    
+    if deliverable.status == "APPROVED":
+        raise HTTPException(status_code=400, detail="Tahap pengerjaan ini sudah disetujui oleh Klien.")
+
+    # Mutasi berkas dokumen progres
+    deliverable.submission_link = payload.submission_link
+    if payload.description:
+        deliverable.description = payload.description
+    deliverable.status = "SUBMITTED"
+    
+    # Rekam audit log terpusat ke tabel project utama
+    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+    if project:
+        project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] Mitra menyerahkan bukti: {deliverable.title}"
+        
+        # Aturan Otomatisasi: Jika yang disetor adalah Tahap 3 (Dokumentasi Akhir), kunci otomatis ke status UAT umum
+        check_last_milestone = db.query(models.ProjectDeliverable).filter(
+            models.ProjectDeliverable.project_id == project_id,
+            models.ProjectDeliverable.title.like("%Tahap 3%")
+        ).first()
+        if check_last_milestone and check_last_milestone.id == deliverable_id:
+            project.status = "MENUNGGU UAT"
+
+        db.commit()
+
+        # -------------------------------------------------------------------------
+        # PUSH REAL-TIME PEMBERITAHUAN: Kirim lonceng peringatan langsung ke layar Klien
+        # -------------------------------------------------------------------------
+        await notif_manager.send_personal_notification(
+            user_id=project.client_id,
+            title="📈 MITRA MENYERAHKAN BUKTI KERJA",
+            message=f"Mitra mengirimkan dokumen/tautan artefak untuk '{deliverable.title}'. Silakan periksa kembali halaman kontrak Anda.",
+            db=db
+        )
+    else:
+        db.commit()
+
+    db.refresh(deliverable)
+    return {"status": "success", "message": f"Hasil kerja untuk '{deliverable.title}' berhasil dikirim!", "data": deliverable}

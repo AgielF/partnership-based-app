@@ -1,0 +1,62 @@
+Fase 1: Onboarding & Standardisasi Kepatuhan (KYC)
+Fase ini bertindak sebagai gerbang keamanan utama (security gateway) untuk mencegah akun bodong (fraud), penipuan, atau pencucian uang.
+
+Registrasi & Inisialisasi Finansial: Saat Mitra mendaftar, sistem tidak hanya mencatat kredensial mereka, tetapi secara otomatis men-generate entitas Dompet Digital (Wallet) dengan struktur Saldo Utama (Rp 0) dan Saldo Escrow (Rp 0). Ini menyiapkan infrastruktur finansial pengguna sejak detik pertama.
+
+Unggah Identitas (Verifikasi Lapis Pertama): Mitra diwajibkan mendefinisikan niche atau keahlian spesifik mereka (misal: Web Developer, Teknisi Hardware) beserta dokumen legal (KTP). Sistem mengunci status mereka di level PENDING. Dalam keadaan ini, fungsi transaksional dibekukan. Mereka dapat melakukan window shopping (melihat bursa kerja) untuk memahami pasar, tetapi tombol untuk mengambil proyek dinonaktifkan.
+
+Validasi Otoritas Admin: Dokumen KTP masuk ke antrean dasbor Admin. Verifikasi manusia ini krusial untuk memastikan kecocokan data. Begitu Admin menekan Verify, terjadi mutasi status menjadi VERIFIED. Sebuah sinyal WebSocket ditembakkan, membunyikan lonceng notifikasi di antarmuka Mitra secara real-time, menandakan bahwa "keran" operasional mereka telah dibuka penuh.
+
+Fase 2: Bursa Kerja & Mekanika Negosiasi Terbuka
+Fase ini mengeliminasi risiko "proyek fiktif" dan mengurangi asimetri informasi antara penawar dan pencari kerja.
+
+Kunci Dana Escrow (Sisi Klien): Platform menghilangkan fenomena hit-and-run (Klien kabur setelah proyek selesai). Saat mempublikasikan proyek, Klien wajib menyetorkan dana (Top-Up). Sistem memotong Saldo Utama Klien dan menguncinya di Saldo Escrow. Proyek berstatus OPEN. Dana ini kini berada di bawah pengawasan sistem, menjamin bahwa uang tersebut benar-benar ada dan siap dibayarkan.
+
+Forum Q&A Publik: Untuk menghindari kotak masuk (inbox) yang penuh dengan pertanyaan teknis berulang, sistem menggunakan Papan Diskusi Terbuka. Klien cukup menjawab satu pertanyaan krusial dari satu Mitra, dan jawaban tersebut menjadi referensi bagi seluruh calon pekerja di bursa. Transparansi ini mempercepat proses bidding.
+
+Pengambilan Proyek (Smart Assignment): Saat Mitra menekan "Ambil Proyek", sistem tidak langsung menyetujui, melainkan menjalankan algoritma Probation (Masa Percobaan) sebagai mitigasi risiko:
+
+Jika rekam jejak Mitra masih di bawah 10 proyek, sistem melarang multitasking (maksimal 1 proyek aktif) dan membatasi nilai risiko finansial maksimal Rp 1.000.000. Ini adalah perlindungan bagi Klien dari vendor baru yang mungkin belum teruji.
+
+Injeksi Milestone Otomatis: Setelah lolos validasi, proyek bergeser ke status SEDANG DIKERJAKAN. Sistem secara cerdas menginjeksikan 3 template Tahapan Kerja (Milestones), memberikan kerangka kerja terstruktur agar proyek tidak berjalan tanpa arah.
+
+Fase 3: Legalitas Kontrak & Manajemen Agile (Deliverables)
+Fase ini mengubah kesepakatan lisan menjadi dokumen mengikat dan memecah proyek besar menjadi bagian-bagian yang dapat diukur.
+
+Tanda Tangan Click-Wrap: Sebelum kode ditulis atau obeng diayunkan, kedua pihak wajib mengeklik "SIGN". Aksi ini mencatat jejak waktu (timestamp) dan IP, yang setara dengan tanda tangan basah di bawah UU ITE (Pasal 1320 KUHPerdata tentang Syarat Sah Perjanjian). Tanpa ini, form pelaporan kerja tidak akan terbuka.
+
+Siklus Bukti Kerja (Iterative Loop): Mitra tidak menyerahkan hasil secara tiba-tiba di akhir waktu. Mereka mengunggah artefak kerja (repositori kode, desain Figma, atau foto mesin keras yang diservis) secara bertahap.
+
+Notifikasi & Respons Real-Time: Ekosistem WebSocket langsung berdenting di layar Klien setiap kali ada tautan hasil kerja yang dikirim. Klien dapat segera mengevaluasi dan memberikan cap "✅ DISETUJUI" atau "❌ REVISI". Lingkaran umpan balik (feedback loop) yang cepat ini mencegah kesalahan fatal di akhir proyek.
+
+Fase 4: Pengujian Puncak (User Acceptance Testing - UAT)
+Ini adalah gerbang serah terima sebelum kewajiban finansial dieksekusi.
+
+Eskalasi Status: Penyerahan Bukti Kerja Tahap Akhir (Tahap 3) menjadi pemicu otomatis yang mengubah status proyek menjadi MENUNGGU UAT. Pekerjaan utama Mitra dianggap selesai secara teknis.
+
+Inspeksi Final: Klien diberikan waktu untuk melakukan pengujian menyeluruh (validasi fungsional software atau pengetesan daya tahan hardware). Pada tahap ini, tidak ada lagi penambahan fitur baru, melainkan murni memvalidasi apakah hasil sesuai dengan kesepakatan di awal.
+
+Fase 5: Resolusi Finansial & Evaluasi Reputasi
+Fase final ini menentukan ke mana aliran dana Escrow akan bermuara.
+
+Skenario A: Penyelesaian Harmonis (BAST Terbit)
+
+Klien menekan "✅ SETUJUI UAT & TERBITKAN BAST".
+
+Atomik Transaksi: Di sepersekian detik, sistem menghapus dana dari Escrow Klien dan menambahkannya ke Saldo Utama Mitra. Transaksi ini bersifat absolut.
+
+Sistem men-generate Berita Acara Serah Terima (BAST) berbentuk PDF yang dilengkapi data proyek, nominal, dan pernyataan legal. Status menjadi COMPLETED.
+
+Algoritma Seleksi Alam: Klien memberikan rating. Jika Mitra yang masih dalam masa percobaan mendapatkan Bintang 1, sistem menganggapnya sebagai ancaman ekosistem dan otomatis memicu Auto-Ban. Sebaliknya, penyelesaian sukses akan menaikkan skor portofolio Mitra.
+
+Skenario B: Intervensi Meja Hijau (Sengketa / Dispute)
+
+Klien tidak puas dan menekan "❌ TOLAK (AJUKAN SENGKETA)". Sistem membekukan proyek (DISPUTED). Dana Escrow terkunci rapat—Klien tidak bisa menariknya, Mitra tidak bisa mengambilnya.
+
+Arbitrase Admin: Kasus dilempar ke yurisdiksi Admin. Admin bertindak sebagai hakim independen yang memiliki akses ke seluruh rekam jejak: riwayat chat, log penyerahan milestone, dan papan Q&A.
+
+Vonis Mutlak:
+
+Refund (Pengembalian): Jika Mitra terbukti melanggar spesifikasi atau kabur, Admin mengembalikan dana ke saldo utama Klien.
+
+Force Release (Pencairan Paksa): Jika Mitra sudah memberikan hasil yang sesuai namun Klien bertindak curang (menolak tanpa alasan jelas demi mendapatkan layanan gratis), Admin mencairkan dana ke saldo Mitra. Status dipaksa menjadi COMPLETED.

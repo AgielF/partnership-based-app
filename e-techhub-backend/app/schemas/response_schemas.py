@@ -1,5 +1,6 @@
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
+
 
 class VendorPerformance(BaseModel):
     nama: str
@@ -19,6 +20,7 @@ class ContractDashboard(BaseModel):
 class JobListing(BaseModel):
     id: str
     title: str
+    client_id: Optional[str] = None  # <--- TAMBAHKAN BARIS INI
     client: str
     tags: List[str]
     type: str

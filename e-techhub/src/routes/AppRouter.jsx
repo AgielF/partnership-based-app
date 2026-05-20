@@ -18,6 +18,7 @@ import AdminSettings from '../pages/Admin/Settings';
 import AdminLayout from '../layouts/AdminLayout';
 import AdminEscrow from '../pages/Admin/Escrow';
 import AdminMitraManagement from '../pages/Admin/MitraManagement';
+import AdminArbitrase from '../pages/Admin/Arbitrase';
 
 import ClientDashboard from '../pages/Client/Dashboard';
 import ClientContracts from '../pages/Client/Contracts';
@@ -60,6 +61,7 @@ export default function AppRouter() {
           <Route path="dropoff" element={<AdminDropOff />} />
           <Route path="mitra" element={<AdminMitraManagement />} />
           <Route path="settings" element={<AdminSettings />} />
+          <Route path="arbitrase" element={<AdminArbitrase />} />
         </Route>
 
         {/* ==========================================

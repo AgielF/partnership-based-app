@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
+import NotificationBell from '../components/NotificationBell'; // <--- 1. IMPORT NOTIFICATION BELL
 
 export default function MitraLayout() {
   const location = useLocation();
@@ -23,7 +24,7 @@ export default function MitraLayout() {
     { name: 'PROYEK & KONTRAK', path: '/mitra/projects', icon: '📝' },
     { name: 'BURSA KERJA', path: '/mitra/jobs', icon: '🎯' },
     { name: 'SALDO ESCROW', path: '/mitra/wallet', icon: '💵' },
-      { name: 'INBOX', path: '/mitra/MitraInbox', icon: '✉️' },
+    { name: 'INBOX', path: '/mitra/MitraInbox', icon: '✉️' },
   ];
 
   return (
@@ -69,7 +70,13 @@ export default function MitraLayout() {
              <div className="w-3 h-3 bg-black rounded-full animate-ping"></div>
              TERSEDIA UNTUK KERJA
           </div>
-          <div className="flex items-center gap-4 uppercase font-black">
+
+          {/* 2. HEADER KANAN (LONCENG NOTIFIKASI + PROFIL) */}
+          <div className="flex items-center gap-6 uppercase font-black">
+             
+             {/* TEMPATKAN KOMPONEN LONCENG DI SINI */}
+             <NotificationBell />
+
              {/* Menampilkan sebagian nama mitra (nama depan) */}
              <span className="text-sm">{userName.split(' ')[0]} | VENDOR</span>
              <div className="w-12 h-12 border-4 border-black bg-yellow-300 text-black flex items-center justify-center text-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] uppercase">

@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: May 18, 2026 at 01:49 PM
+-- Generation Time: May 19, 2026 at 10:05 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -20,6 +20,47 @@ SET time_zone = "+00:00";
 --
 -- Database: `etechhub_db`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `chat_messages`
+--
+
+CREATE TABLE `chat_messages` (
+  `id` int(11) NOT NULL,
+  `room_id` varchar(100) NOT NULL,
+  `sender_id` varchar(50) NOT NULL,
+  `message_text` text NOT NULL,
+  `is_system_message` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `chat_messages`
+--
+
+INSERT INTO `chat_messages` (`id`, `room_id`, `sender_id`, `message_text`, `is_system_message`, `created_at`) VALUES
+(1, 'NEGO-USER-4E2582C4-VND-AF4AAF20', 'USER-4E2582C4', 'hallo', 0, '2026-05-18 18:46:35'),
+(2, 'NEGO-USER-4E2582C4-VND-AF4AAF20', 'USER-4E2582C4', 'halloo', 0, '2026-05-18 18:51:24'),
+(3, 'NEGO-USER-4E2582C4-VND-AF4AAF20', 'VND-AF4AAF20', 'ya ', 0, '2026-05-18 19:48:38');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `iot_dropoffs`
+--
+
+CREATE TABLE `iot_dropoffs` (
+  `id` varchar(50) NOT NULL,
+  `project_id` varchar(50) NOT NULL,
+  `admin_id` varchar(50) NOT NULL,
+  `device_type` varchar(100) NOT NULL,
+  `physical_status` enum('MENUNGGU_DIANTAR','DITERIMA_LOKET','DIKERJAKAN_MITRA','SIAP_DIAMBIL','DIKEMBALIKAN_KE_KLIEN') DEFAULT 'MENUNGGU_DIANTAR',
+  `condition_notes` text DEFAULT NULL,
+  `received_at` timestamp NULL DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -44,7 +85,7 @@ CREATE TABLE `mitra_profiles` (
 --
 
 INSERT INTO `mitra_profiles` (`user_id`, `specialty_role`, `rating`, `hourly_rate_or_fee`, `avg_speed_days`, `projects_completed`, `kyc_status`, `latitude`, `longitude`) VALUES
-('VND-AF4AAF20', 'IOT/EMBEDDED', 0.00, '50000', 0, 0, 'VERIFIED', -6.92020000, 107.60840000);
+('VND-AF4AAF20', 'IOT/EMBEDDED', 0.00, '50000', 0, 1, 'VERIFIED', -6.92020000, 107.60840000);
 
 -- --------------------------------------------------------
 
@@ -70,7 +111,7 @@ CREATE TABLE `projects` (
 --
 
 INSERT INTO `projects` (`id`, `client_id`, `mitra_id`, `title`, `description`, `service_type`, `status`, `current_milestone`, `budget`, `deadline_days`) VALUES
-('JOB-2026-B86E', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN HIDROPONIK BERBASIS IOT', 'pembuatan hidroponik berbasis IOT', 'IOT/EMBEDDED', 'COMPLETED', '[17/05 13:31] BAST Diterbitkan. Proyek Selesai.', 50000.00, 14);
+('JOB-2026-B86E', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN HIDROPONIK BERBASIS IOT', 'pembuatan hidroponik berbasis IOT', 'IOT/EMBEDDED', 'COMPLETED', '[19/05 05:46] BAST Diterbitkan. Proyek Selesai.', 50000.00, 14);
 
 -- --------------------------------------------------------
 
@@ -153,7 +194,9 @@ CREATE TABLE `transactions` (
 INSERT INTO `transactions` (`id`, `user_id`, `project_id`, `transaction_type`, `amount`, `status`, `created_at`) VALUES
 ('TRX-ESC-5091', 'USER-4E2582C4', 'JOB-2026-B86E', 'PENAHANAN DANA (ESCROW)', -50000.00, 'SUCCESS', '2026-05-17 11:16:49'),
 ('TRX-IN-A6D2', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
+('TRX-IN-FF78', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
 ('TRX-OUT-B642', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
+('TRX-OUT-F0F9', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
 ('TRX-PG-7B01', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (PAYMENT GATEWAY)', 100000.00, 'SUCCESS', '2026-05-17 11:16:07');
 
 -- --------------------------------------------------------
@@ -176,6 +219,7 @@ CREATE TABLE `users` (
 
 INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`) VALUES
 ('ADM-47F0D9', 'SUPER ADMIN E-TECHHUB', 'admin@etechhub.com', '$2b$12$WWfqmjRmbB/U1hoWBn6ijO5sG/4RFFRA7rBq.TaHPxI6v8xWlZesW', 'admin'),
+('SYSTEM', 'Sistem E-TechHub', 'system@etechhub.com', 'none', 'admin'),
 ('USER-4E2582C4', 'agiel', 'agiel@gmail.com', '$2b$12$yeEZ6BDUgatalSU1hQaGIOFLms.28mnA6/CO5sCz09jjLuKmgrI9a', 'klien'),
 ('VND-AF4AAF20', 'putra', 'putra@gmail.com', '$2b$12$y58Nf9oqkO5DVvVRvq2CLupKErk23MpQdI3TITzCqXjurRjXyUZsq', 'mitra');
 
@@ -197,12 +241,27 @@ CREATE TABLE `wallets` (
 
 INSERT INTO `wallets` (`user_id`, `balance`, `escrow_balance`) VALUES
 ('ADM-47F0D9', 0.00, 0.00),
-('USER-4E2582C4', 50000.00, 0.00),
-('VND-AF4AAF20', 50000.00, 0.00);
+('USER-4E2582C4', 50000.00, -50000.00),
+('VND-AF4AAF20', 100000.00, 0.00);
 
 --
 -- Indexes for dumped tables
 --
+
+--
+-- Indexes for table `chat_messages`
+--
+ALTER TABLE `chat_messages`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `chat_messages_ibfk_2` (`sender_id`);
+
+--
+-- Indexes for table `iot_dropoffs`
+--
+ALTER TABLE `iot_dropoffs`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `iot_dropoffs_ibfk_1` (`project_id`),
+  ADD KEY `iot_dropoffs_ibfk_2` (`admin_id`);
 
 --
 -- Indexes for table `mitra_profiles`
@@ -265,6 +324,12 @@ ALTER TABLE `wallets`
 --
 
 --
+-- AUTO_INCREMENT for table `chat_messages`
+--
+ALTER TABLE `chat_messages`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
 -- AUTO_INCREMENT for table `tags`
 --
 ALTER TABLE `tags`
@@ -273,6 +338,19 @@ ALTER TABLE `tags`
 --
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `chat_messages`
+--
+ALTER TABLE `chat_messages`
+  ADD CONSTRAINT `chat_messages_ibfk_2` FOREIGN KEY (`sender_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `iot_dropoffs`
+--
+ALTER TABLE `iot_dropoffs`
+  ADD CONSTRAINT `iot_dropoffs_ibfk_1` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `iot_dropoffs_ibfk_2` FOREIGN KEY (`admin_id`) REFERENCES `users` (`id`);
 
 --
 -- Constraints for table `mitra_profiles`
