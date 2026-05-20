@@ -2,8 +2,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 
-# Konfigurasi koneksi MySQL. Ganti 'root' dan password sesuai database lokal/server Anda.
-MYSQL_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:root@localhost:3306/etechhub_db")
+# Konfigurasi koneksi MySQL disesuaikan tanpa password
+MYSQL_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:@localhost:3306/etechhub_db")
 
 engine = create_engine(MYSQL_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
