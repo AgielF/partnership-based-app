@@ -127,6 +127,25 @@ def get_client_public_profile(client_id: str, db: Session = Depends(get_db)):
         "total_projects_posted": projects_count
     }
 
+@router.get("/clients/{client_id}/projects")
+def get_client_projects_history(client_id: str, db: Session = Depends(get_db)):
+    """Mengambil semua proyek yang pernah diterbitkan oleh klien tertentu (Untuk Portofolio Klien)"""
+    projects = db.query(models.Project).filter(
+        models.Project.client_id == client_id
+    ).order_by(models.Project.id.desc()).all()
+    
+    result = []
+    for p in projects:
+        result.append({
+            "id": p.id,
+            "title": p.title,
+            "status": p.status,
+            "service_type": p.service_type,
+            "budget": float(p.budget),
+            "created_at": p.created_at.strftime("%d %b %Y") if hasattr(p, 'created_at') and p.created_at else "Tanggal Tidak Diketahui"
+        })
+    return result
+
 # =========================================================================
 # BURSA KERJA (JOBS LISTING)
 # =========================================================================
@@ -267,6 +286,33 @@ def get_mitra_projects(mitra_id: str, db: Session = Depends(get_db)):
             "service_type": p.service_type,
             "current_milestone": p.current_milestone,
             "deadline_days": p.deadline_days
+        })
+    return result
+
+# =========================================================================
+# RIWAYAT PROYEK SELESAI (PORTOFOLIO)
+# =========================================================================
+@router.get("/{mitra_id}/history")
+def get_mitra_history(mitra_id: str, db: Session = Depends(get_db)):
+    """Mengambil riwayat proyek yang sudah COMPLETED lengkap dengan data Klien dan Mitra"""
+    projects = db.query(models.Project).filter(
+        models.Project.mitra_id == mitra_id,
+        models.Project.status == "COMPLETED"
+    ).order_by(models.Project.id.desc()).all()
+    
+    result = []
+    for p in projects:
+        client_name = p.client.name if p.client else "Klien Anonim"
+        mitra_name = p.mitra.name if p.mitra else "Mitra Anonim"
+        
+        result.append({
+            "id": p.id,
+            "title": p.title,
+            "service_type": p.service_type,
+            "budget": float(p.budget),
+            "client_name": client_name,
+            "mitra_name": mitra_name,
+            "milestone_akhir": p.current_milestone
         })
     return result
 

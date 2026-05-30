@@ -306,15 +306,7 @@ export const updateMitraProgress = async (projectId, mitraId, milestoneText) => 
   return data;
 };
 
-// Menyetujui UAT (Mencairkan dana ke Mitra)
-export const approveClientUat = async (clientId, contractId) => {
-  const response = await fetch(`${BASE_URL}/client/${clientId}/contracts/${contractId}/approve`, {
-    method: 'PUT'
-  });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Gagal menyetujui UAT');
-  return data;
-};
+
 
 // Menolak UAT (Mengubah status menjadi Disputed/Sengketa)
 export const rejectClientUat = async (clientId, contractId) => {
@@ -441,4 +433,27 @@ export const resolveDisputeForceRelease = async (projectId) => {
   const data = await response.json();
   if (!response.ok) throw new Error(data.detail || 'Gagal mencairkan dana ke mitra');
   return data;
+};
+
+export const approveClientUat = async (clientId, contractId, ratingScore = 5.0) => {
+  const response = await fetch(`${BASE_URL}/client/${clientId}/contracts/${contractId}/approve`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rating: ratingScore }) // Suntikkan Payload
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menyetujui UAT');
+  return data;
+};
+
+export const getMitraHistory = async (mitraId) => {
+  const response = await fetch(`${BASE_URL}/mitra/${mitraId}/history`);
+  if (!response.ok) throw new Error('Gagal mengambil riwayat proyek selesai');
+  return response.json();
+};
+
+export const getClientProjectsHistory = async (clientId) => {
+  const response = await fetch(`${BASE_URL}/mitra/clients/${clientId}/projects`);
+  if (!response.ok) throw new Error('Gagal memuat riwayat proyek klien');
+  return response.json();
 };

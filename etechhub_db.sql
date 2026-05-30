@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: May 19, 2026 at 10:05 AM
+-- Generation Time: May 20, 2026 at 07:07 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -85,7 +85,35 @@ CREATE TABLE `mitra_profiles` (
 --
 
 INSERT INTO `mitra_profiles` (`user_id`, `specialty_role`, `rating`, `hourly_rate_or_fee`, `avg_speed_days`, `projects_completed`, `kyc_status`, `latitude`, `longitude`) VALUES
+('VND-4EE93994', 'General IT Vendor', 0.00, NULL, 0, 1, 'VERIFIED', NULL, NULL),
 ('VND-AF4AAF20', 'IOT/EMBEDDED', 0.00, '50000', 0, 1, 'VERIFIED', -6.92020000, 107.60840000);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `notifications`
+--
+
+CREATE TABLE `notifications` (
+  `id` int(11) NOT NULL,
+  `user_id` varchar(50) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `message` text NOT NULL,
+  `is_read` tinyint(1) DEFAULT 0,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `notifications`
+--
+
+INSERT INTO `notifications` (`id`, `user_id`, `title`, `message`, `is_read`, `created_at`) VALUES
+(1, 'VND-4EE93994', '✅ KYC DIVERIFIKASI', 'Selamat! Identitas Anda telah diverifikasi oleh Admin. Anda kini bisa mengambil proyek.', 1, '2026-05-19 17:08:16'),
+(2, 'USER-4E2582C4', '📈 MITRA MENYERAHKAN BUKTI KERJA', 'Mitra mengirimkan dokumen/tautan artefak untuk \'Tahap 2: Implementasi Sistem\'. Silakan periksa kembali halaman kontrak Anda.', 1, '2026-05-19 17:25:52'),
+(3, 'VND-4EE93994', 'STATUS BUKTI KERJA: DITOLAK ❌ (BUTUH REVISI)', 'Klien telah mengevaluasi berkas \'Tahap 2: Implementasi Sistem\' untuk proyek: \'PEMBUATAN BACKEND DENGAN SPRING\'.', 1, '2026-05-19 17:27:19'),
+(4, 'USER-4E2582C4', '📈 MITRA MENYERAHKAN BUKTI KERJA', 'Mitra mengirimkan dokumen/tautan artefak untuk \'Tahap 2: Implementasi Sistem\'. Silakan periksa kembali halaman kontrak Anda.', 1, '2026-05-19 17:28:42'),
+(5, 'VND-4EE93994', 'STATUS BUKTI KERJA: DISETUJUI ✅', 'Klien telah mengevaluasi berkas \'Tahap 2: Implementasi Sistem\' untuk proyek: \'PEMBUATAN BACKEND DENGAN SPRING\'.', 0, '2026-05-19 17:29:13'),
+(6, 'VND-4EE93994', '💰 DANA ESCROW CAIR / SPK SELESAI', 'Klien menyetujui UAT proyek \'PEMBUATAN BACKEND DENGAN SPRING\'. Dana Rp 1,000 telah masuk ke saldo utama Anda.', 0, '2026-05-19 17:30:29');
 
 -- --------------------------------------------------------
 
@@ -111,7 +139,57 @@ CREATE TABLE `projects` (
 --
 
 INSERT INTO `projects` (`id`, `client_id`, `mitra_id`, `title`, `description`, `service_type`, `status`, `current_milestone`, `budget`, `deadline_days`) VALUES
-('JOB-2026-B86E', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN HIDROPONIK BERBASIS IOT', 'pembuatan hidroponik berbasis IOT', 'IOT/EMBEDDED', 'COMPLETED', '[19/05 05:46] BAST Diterbitkan. Proyek Selesai.', 50000.00, 14);
+('JOB-2026-571F', 'USER-4E2582C4', NULL, 'PEMBUATAN FRONTEND ', 'Pembuatan VUE dengan dokumen yang diberikan', 'SOFTWARE/WEB', 'OPEN', NULL, 25000.00, 14),
+('JOB-2026-B86E', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN HIDROPONIK BERBASIS IOT', 'pembuatan hidroponik berbasis IOT', 'IOT/EMBEDDED', 'COMPLETED', '[19/05 05:46] BAST Diterbitkan. Proyek Selesai.', 50000.00, 14),
+('JOB-2026-F61E', 'USER-4E2582C4', 'VND-4EE93994', 'PEMBUATAN BACKEND DENGAN SPRING', 'microservice java ', 'SOFTWARE/WEB', 'COMPLETED', '[20/05 07:30] BAST Diterbitkan. Proyek Selesai.', 1000.00, 14);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `project_deliverables`
+--
+
+CREATE TABLE `project_deliverables` (
+  `id` int(11) NOT NULL,
+  `project_id` varchar(50) NOT NULL,
+  `title` varchar(255) NOT NULL,
+  `description` text DEFAULT NULL,
+  `submission_link` text DEFAULT NULL,
+  `status` enum('PENDING','SUBMITTED','REVISION_REQUESTED','APPROVED') DEFAULT 'PENDING',
+  `feedback` text DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `project_deliverables`
+--
+
+INSERT INTO `project_deliverables` (`id`, `project_id`, `title`, `description`, `submission_link`, `status`, `feedback`, `updated_at`) VALUES
+(1, 'JOB-2026-F61E', 'Tahap 1: Desain & Arsitektur', 'Penyerahan mock-up UI/UX atau skema rancangan IoT hardware.', NULL, 'PENDING', NULL, '2026-05-19 17:09:01'),
+(2, 'JOB-2026-F61E', 'Tahap 2: Implementasi Sistem', 'Pengembangan fungsionalitas inti, integrasi API, atau perakitan hardware.', 'https://github.com/AgielF/app1', 'APPROVED', '', '2026-05-19 17:29:13'),
+(3, 'JOB-2026-F61E', 'Tahap 3: Hasil Akhir & Dokumentasi', 'Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik.', NULL, 'PENDING', NULL, '2026-05-19 17:09:01');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `project_qna`
+--
+
+CREATE TABLE `project_qna` (
+  `id` int(11) NOT NULL,
+  `project_id` varchar(50) NOT NULL,
+  `user_id` varchar(50) NOT NULL,
+  `message` text NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `project_qna`
+--
+
+INSERT INTO `project_qna` (`id`, `project_id`, `user_id`, `message`, `created_at`) VALUES
+(1, 'JOB-2026-571F', 'VND-AF4AAF20', 'apakah arsitekturnya microservice?', '2026-05-19 07:20:53'),
+(2, 'JOB-2026-571F', 'USER-4E2582C4', 'iya ', '2026-05-19 17:03:18');
 
 -- --------------------------------------------------------
 
@@ -130,7 +208,9 @@ CREATE TABLE `project_tags` (
 
 INSERT INTO `project_tags` (`project_id`, `tag_id`) VALUES
 ('JOB-2026-B86E', 1),
-('JOB-2026-B86E', 2);
+('JOB-2026-B86E', 2),
+('JOB-2026-571F', 3),
+('JOB-2026-F61E', 4);
 
 -- --------------------------------------------------------
 
@@ -169,7 +249,9 @@ CREATE TABLE `tags` (
 
 INSERT INTO `tags` (`id`, `tag_name`) VALUES
 (1, 'C++'),
-(2, 'PYTHON');
+(4, 'JAVA'),
+(2, 'PYTHON'),
+(3, 'VUE');
 
 -- --------------------------------------------------------
 
@@ -192,9 +274,15 @@ CREATE TABLE `transactions` (
 --
 
 INSERT INTO `transactions` (`id`, `user_id`, `project_id`, `transaction_type`, `amount`, `status`, `created_at`) VALUES
+('TRX-120E5F717A', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 10000.00, 'PENDING', '2026-05-20 11:09:16'),
+('TRX-94188C9FA1', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 10000.00, 'SUCCESS', '2026-05-20 11:43:42'),
 ('TRX-ESC-5091', 'USER-4E2582C4', 'JOB-2026-B86E', 'PENAHANAN DANA (ESCROW)', -50000.00, 'SUCCESS', '2026-05-17 11:16:49'),
+('TRX-ESC-B27C', 'USER-4E2582C4', 'JOB-2026-F61E', 'PENAHANAN DANA (ESCROW)', -1000.00, 'SUCCESS', '2026-05-20 07:05:16'),
+('TRX-ESC-ED8A', 'USER-4E2582C4', 'JOB-2026-571F', 'PENAHANAN DANA (ESCROW)', -25000.00, 'SUCCESS', '2026-05-19 15:35:36'),
+('TRX-IN-403B', 'VND-4EE93994', 'JOB-2026-F61E', 'PENERIMAAN DANA (SPK SELESAI)', 1000.00, 'SUCCESS', '2026-05-20 07:30:29'),
 ('TRX-IN-A6D2', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
 ('TRX-IN-FF78', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
+('TRX-OUT-634C', 'USER-4E2582C4', 'JOB-2026-F61E', 'BAST TERBIT (ESCROW RELEASE)', -1000.00, 'SUCCESS', '2026-05-20 07:30:29'),
 ('TRX-OUT-B642', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
 ('TRX-OUT-F0F9', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
 ('TRX-PG-7B01', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (PAYMENT GATEWAY)', 100000.00, 'SUCCESS', '2026-05-17 11:16:07');
@@ -221,6 +309,7 @@ INSERT INTO `users` (`id`, `name`, `email`, `password_hash`, `role`) VALUES
 ('ADM-47F0D9', 'SUPER ADMIN E-TECHHUB', 'admin@etechhub.com', '$2b$12$WWfqmjRmbB/U1hoWBn6ijO5sG/4RFFRA7rBq.TaHPxI6v8xWlZesW', 'admin'),
 ('SYSTEM', 'Sistem E-TechHub', 'system@etechhub.com', 'none', 'admin'),
 ('USER-4E2582C4', 'agiel', 'agiel@gmail.com', '$2b$12$yeEZ6BDUgatalSU1hQaGIOFLms.28mnA6/CO5sCz09jjLuKmgrI9a', 'klien'),
+('VND-4EE93994', 'nanda', 'nanda@gmail.com', '$2b$12$7ytyuBU2ZA4axYY5wS5KLeItCsSxZ3XfiXaik7NO8X6b.6CvAio6W', 'mitra'),
 ('VND-AF4AAF20', 'putra', 'putra@gmail.com', '$2b$12$y58Nf9oqkO5DVvVRvq2CLupKErk23MpQdI3TITzCqXjurRjXyUZsq', 'mitra');
 
 -- --------------------------------------------------------
@@ -241,7 +330,8 @@ CREATE TABLE `wallets` (
 
 INSERT INTO `wallets` (`user_id`, `balance`, `escrow_balance`) VALUES
 ('ADM-47F0D9', 0.00, 0.00),
-('USER-4E2582C4', 50000.00, -50000.00),
+('USER-4E2582C4', 34000.00, -25000.00),
+('VND-4EE93994', 1000.00, 0.00),
 ('VND-AF4AAF20', 100000.00, 0.00);
 
 --
@@ -270,12 +360,34 @@ ALTER TABLE `mitra_profiles`
   ADD PRIMARY KEY (`user_id`);
 
 --
+-- Indexes for table `notifications`
+--
+ALTER TABLE `notifications`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `fk_notifications_user` (`user_id`);
+
+--
 -- Indexes for table `projects`
 --
 ALTER TABLE `projects`
   ADD PRIMARY KEY (`id`),
   ADD KEY `client_id` (`client_id`),
   ADD KEY `mitra_id` (`mitra_id`);
+
+--
+-- Indexes for table `project_deliverables`
+--
+ALTER TABLE `project_deliverables`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `fk_deliverables_project` (`project_id`);
+
+--
+-- Indexes for table `project_qna`
+--
+ALTER TABLE `project_qna`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `fk_qna_project` (`project_id`),
+  ADD KEY `fk_qna_user` (`user_id`);
 
 --
 -- Indexes for table `project_tags`
@@ -330,10 +442,28 @@ ALTER TABLE `chat_messages`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
+-- AUTO_INCREMENT for table `notifications`
+--
+ALTER TABLE `notifications`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+
+--
+-- AUTO_INCREMENT for table `project_deliverables`
+--
+ALTER TABLE `project_deliverables`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+
+--
+-- AUTO_INCREMENT for table `project_qna`
+--
+ALTER TABLE `project_qna`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+
+--
 -- AUTO_INCREMENT for table `tags`
 --
 ALTER TABLE `tags`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
 
 --
 -- Constraints for dumped tables
@@ -359,11 +489,30 @@ ALTER TABLE `mitra_profiles`
   ADD CONSTRAINT `mitra_profiles_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
+-- Constraints for table `notifications`
+--
+ALTER TABLE `notifications`
+  ADD CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
 -- Constraints for table `projects`
 --
 ALTER TABLE `projects`
   ADD CONSTRAINT `projects_ibfk_1` FOREIGN KEY (`client_id`) REFERENCES `users` (`id`),
   ADD CONSTRAINT `projects_ibfk_2` FOREIGN KEY (`mitra_id`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `project_deliverables`
+--
+ALTER TABLE `project_deliverables`
+  ADD CONSTRAINT `fk_deliverables_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE;
+
+--
+-- Constraints for table `project_qna`
+--
+ALTER TABLE `project_qna`
+  ADD CONSTRAINT `fk_qna_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `fk_qna_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `project_tags`

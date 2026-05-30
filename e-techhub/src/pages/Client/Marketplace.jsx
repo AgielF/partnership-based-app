@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getMitraDirectory, createProject } from '../../services/api';
-import ChatModal from '../../components/ChatModal'; // <-- IMPORT CHAT MODAL
+import { getMitraDirectory, createProject, getMitraHistory } from '../../services/api'; // <-- IMPORT getMitraHistory
+import ChatModal from '../../components/ChatModal';
 
 export default function ClientMarketplace() {
   const [mitraList, setMitraList] = useState([]);
@@ -17,8 +17,13 @@ export default function ClientMarketplace() {
   // State untuk menyimpan Mitra yang sedang dipilih (Sewa Langsung)
   const [selectedMitra, setSelectedMitra] = useState(null);
 
-  // STATE BARU: MENGONTROL MODAL CHAT NEGOSIASI
+  // MENGONTROL MODAL CHAT NEGOSIASI
   const [activeChatRoom, setActiveChatRoom] = useState(null);
+
+  // STATE BARU: MENGONTROL MODAL PORTOFOLIO
+  const [portfolioMitra, setPortfolioMitra] = useState(null);
+  const [portfolioData, setPortfolioData] = useState([]);
+  const [isLoadingPortfolio, setIsLoadingPortfolio] = useState(false);
 
   useEffect(() => {
     const fetchMitras = async () => {
@@ -50,7 +55,7 @@ export default function ClientMarketplace() {
         budget: parseFloat(budget),
         description: finalDescription,
         deadline_days: parseInt(deadlineDays, 10), 
-        tags: parsedTags                           
+        tags: parsedTags                                           
       });
       
       alert(selectedMitra ? `Permintaan SPK berhasil dikirim langsung ke ${selectedMitra.name}!` : "Proyek berhasil dipublikasikan ke Bursa Kerja Umum!");
@@ -58,6 +63,20 @@ export default function ClientMarketplace() {
       setTitle(''); setBudget(''); setDescription(''); setDeadlineDays(''); setTagsInput(''); setSelectedMitra(null);
     } catch (error) {
       alert(`Gagal: ${error.message}`);
+    }
+  };
+
+  // FUNGSI BARU: Mengambil dan membuka Portofolio
+  const handleViewPortfolio = async (mitra) => {
+    setPortfolioMitra(mitra);
+    setIsLoadingPortfolio(true);
+    try {
+      const data = await getMitraHistory(mitra.id);
+      setPortfolioData(data);
+    } catch (error) {
+      alert(`Gagal memuat portofolio: ${error.message}`);
+    } finally {
+      setIsLoadingPortfolio(false);
     }
   };
 
@@ -72,6 +91,74 @@ export default function ClientMarketplace() {
           onClose={() => setActiveChatRoom(null)} 
         />
       )}
+
+      {/* ========================================================
+          MODAL BARU: PORTOFOLIO MITRA
+          ======================================================== */}
+      {portfolioMitra && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+          <div className="bg-white border-8 border-black p-6 shadow-[12px_12px_0px_0px_rgba(0,0,0,1)] max-w-3xl w-full max-h-[85vh] flex flex-col">
+            
+            <div className="flex justify-between items-start border-b-4 border-black pb-4 mb-4 shrink-0">
+              <div>
+                <h2 className="text-3xl font-black uppercase text-blue-600">PORTOFOLIO: {portfolioMitra.name}</h2>
+                <p className="text-gray-600 font-bold uppercase mt-1">⭐ {parseFloat(portfolioMitra.rating).toFixed(1)} | {portfolioMitra.role}</p>
+              </div>
+              <button 
+                onClick={() => setPortfolioMitra(null)} 
+                className="text-4xl font-black hover:text-red-500 transition-colors leading-none"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="overflow-y-auto pr-2 space-y-4 grow">
+              {isLoadingPortfolio ? (
+                <div className="bg-yellow-300 border-4 border-black p-6 font-black uppercase text-xl text-center animate-pulse">
+                  ⏳ MEMUAT BUKTI KERJA...
+                </div>
+              ) : portfolioData.length === 0 ? (
+                <div className="bg-gray-100 border-4 border-black p-8 font-bold uppercase text-center text-gray-500">
+                  MITRA INI BELUM MEMILIKI RIWAYAT PROYEK YANG SELESAI.
+                </div>
+              ) : (
+                portfolioData.map((proj) => (
+                  <div key={proj.id} className="border-4 border-black p-5 bg-gray-50 hover:bg-white transition-colors">
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="text-xl font-black uppercase text-green-700">{proj.title}</h3>
+                      <span className="bg-black text-white px-2 py-1 text-xs font-black uppercase whitespace-nowrap">
+                        {proj.service_type}
+                      </span>
+                    </div>
+                    
+                    <div className="grid grid-cols-2 gap-4 border-t-2 border-black border-dashed pt-3">
+                      <div>
+                        <p className="text-xs uppercase font-bold text-gray-500">Pemberi Kerja (Klien)</p>
+                        <p className="font-black uppercase">{proj.client_name}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs uppercase font-bold text-gray-500">Nilai Kontrak</p>
+                        <p className="font-black uppercase text-blue-600 text-lg">Rp {proj.budget.toLocaleString('id-ID')}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+            
+            <div className="mt-4 pt-4 border-t-4 border-black shrink-0">
+              <button 
+                onClick={() => setPortfolioMitra(null)}
+                className="w-full bg-black text-white font-black uppercase py-3 border-4 border-black hover:bg-gray-800 transition active:translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none"
+              >
+                TUTUP PORTOFOLIO
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+      {/* ======================================================== */}
 
       <div className="border-b-8 border-black pb-6 mb-10 flex justify-between items-end">
         <div>
@@ -157,7 +244,7 @@ export default function ClientMarketplace() {
               >
                 <div className="flex justify-between items-start mb-2">
                   <h3 className="text-xl font-black uppercase">{mitra.name}</h3>
-                  <span className="font-black">⭐ {parseFloat(mitra.rating).toFixed(1)}</span>
+                  <span className="font-black text-yellow-500 drop-shadow-[1px_1px_0px_rgba(0,0,0,1)]">⭐ {parseFloat(mitra.rating).toFixed(1)}</span>
                 </div>
                 <p className="text-sm font-bold text-gray-600 uppercase mb-3">{mitra.role}</p>
                 <div className="flex gap-2 mb-4 flex-wrap">
@@ -171,6 +258,15 @@ export default function ClientMarketplace() {
                   <span className="font-black text-lg">{mitra.rate}</span>
                   
                   <div className="flex gap-2">
+                     {/* TOMBOL PORTOFOLIO BARU */}
+                     <button 
+                       onClick={() => handleViewPortfolio(mitra)}
+                       className="bg-green-400 text-black border-2 border-black px-3 py-2 font-black uppercase hover:bg-green-500 active:translate-y-1 text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all"
+                       title="Lihat Riwayat Proyek"
+                     >
+                       📂 PORTFOLIO
+                     </button>
+
                      <button 
                        onClick={() => setActiveChatRoom(`NEGO-${clientId}-${mitra.id}`)}
                        className="bg-white text-black border-2 border-black px-3 py-2 font-black uppercase hover:bg-yellow-300 active:translate-y-1 text-sm shadow-[2px_2px_0px_0px_rgba(0,0,0,1)] active:shadow-none transition-all"

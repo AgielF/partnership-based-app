@@ -1,17 +1,21 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+import os
+import uuid
+import io
+from decimal import Decimal
+from datetime import datetime 
+from typing import List, Optional
+
+# 1. SATUKAN IMPORT FASTAPI
+from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
-from typing import List, Optional
-from pydantic import BaseModel
-import uuid
-from decimal import Decimal
 from reportlab.pdfgen import canvas
-import io
-from datetime import datetime 
+import midtransclient
+
 from app.core.database import get_db
 from app.models import domain_models as models
-from app.schemas import response_schemas as schemas
-from app.routers.notification_router import notif_manager # <-- IMPORT NOTIFICATION ENGINE GLOBAL
+from app.routers.notification_router import notif_manager
 
 router = APIRouter(prefix="/api/client", tags=["Client"])
 
@@ -24,6 +28,13 @@ class ProjectCreate(BaseModel):
     deadline_days: int          
     tags: Optional[List[str]] = []
 
+# 2. GUNAKAN ENVIRONMENT VARIABLE UNTUK MIDTRANS
+snap = midtransclient.Snap(
+    is_production=False,
+    server_key=os.getenv("MIDTRANS_SERVER_KEY", ""),
+    client_key=os.getenv("MIDTRANS_CLIENT_KEY", "")
+)
+
 class MitraPublicProfile(BaseModel):
     id: str
     name_masked: str
@@ -35,6 +46,10 @@ class MitraPublicProfile(BaseModel):
 class DeliverableReviewPayload(BaseModel):
     status: str # Wajib bernilai 'APPROVED' atau 'REVISION_REQUESTED'
     feedback: Optional[str] = None
+
+# SKEMA BARU UNTUK RATING UAT
+class UATApprovePayload(BaseModel):
+    rating: float = 5.0 # Secara default memberi Bintang 5.0 jika Klien tidak mengisi
 
 # ==========================================
 # 1. MANAJEMEN DOMPET & KEUANGAN
@@ -53,29 +68,94 @@ def get_client_wallet(client_id: str, db: Session = Depends(get_db)):
 @router.post("/{client_id}/topup/online")
 def topup_wallet_online(client_id: str, payload: dict, db: Session = Depends(get_db)):
     try:
-        amount = Decimal(str(payload.get("amount", 0)))
+        amount = int(Decimal(str(payload.get("amount", 0)))) # Midtrans butuh format integer
     except:
         raise HTTPException(status_code=400, detail="Format angka tidak valid")
         
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Nominal tidak valid")
+
+    # Ambil data user untuk info pelanggan di Midtrans
+    user = db.query(models.User).filter(models.User.id == client_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User tidak ditemukan")
         
-    wallet = db.query(models.Wallet).filter(models.Wallet.user_id == client_id).first()
-    if not wallet:
-        wallet = models.Wallet(user_id=client_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
-        db.add(wallet)
-        
-    wallet.balance += amount
-    
-    trx_id = f"TRX-PG-{uuid.uuid4().hex[:4].upper()}"
+    # 1. Buat Order ID & Catat Transaksi sebagai PENDING
+    trx_id = f"TRX-{uuid.uuid4().hex[:10].upper()}"
     new_trx = models.Transaction(
-        id=trx_id, user_id=client_id, transaction_type="TOP UP ONLINE (PAYMENT GATEWAY)",
-        amount=amount, status="SUCCESS"
+        id=trx_id, 
+        user_id=client_id, 
+        transaction_type="TOP UP ONLINE (MIDTRANS)",
+        amount=amount, 
+        status="PENDING" # Saldo BELUM bertambah
     )
     db.add(new_trx)
     db.commit()
     
-    return {"status": "success", "message": "Top-up berhasil", "new_balance": float(wallet.balance)}
+    # 2. Siapkan parameter untuk dikirim ke Midtrans
+    param = {
+        "transaction_details": {
+            "order_id": trx_id,
+            "gross_amount": amount
+        },
+        "customer_details": {
+            "first_name": user.name,
+            "email": user.email
+        }
+    }
+
+    try:
+        # 3. Minta Token Snap ke server Midtrans
+        transaction = snap.create_transaction(param)
+        return {
+            "status": "success", 
+            "message": "Token berhasil dibuat", 
+            "token": transaction['token']
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Gagal menghubungi Midtrans: {str(e)}")
+
+# ==========================================
+# 1.B. WEBHOOK (CRITICAL): Mendengarkan Notifikasi Midtrans
+# ==========================================
+@router.post("/midtrans/webhook")
+async def midtrans_webhook(request: Request, db: Session = Depends(get_db)):
+    payload = await request.json()
+    
+    order_id = payload.get('order_id')
+    transaction_status = payload.get('transaction_status')
+    fraud_status = payload.get('fraud_status')
+
+    # Cari transaksi di database
+    trx = db.query(models.Transaction).filter(models.Transaction.id == order_id).first()
+    if not trx:
+        return {"status": "ignored", "message": "Transaksi tidak ditemukan"}
+
+    # Jika sudah SUCCESS, hiraukan (menghindari double webhook)
+    if trx.status == 'SUCCESS':
+        return {"status": "ignored", "message": "Transaksi sudah diproses sebelumnya"}
+
+    # Analisis Status Midtrans
+    if transaction_status == 'capture' or transaction_status == 'settlement':
+        if fraud_status != 'challenge':
+            # PEMBAYARAN BERHASIL -> UPDATE STATUS DAN TAMBAH SALDO
+            trx.status = 'SUCCESS'
+            
+            wallet = db.query(models.Wallet).filter(models.Wallet.user_id == trx.user_id).first()
+            if not wallet:
+                wallet = models.Wallet(user_id=trx.user_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
+                db.add(wallet)
+            
+            wallet.balance += trx.amount
+            db.commit()
+            
+    elif transaction_status in ['cancel', 'deny', 'expire']:
+        # PEMBAYARAN GAGAL/EXPIRED
+        trx.status = 'FAILED'
+        db.commit()
+
+    return {"status": "ok"}
 
 @router.get("/{client_id}/transactions")
 def get_client_transactions(client_id: str, db: Session = Depends(get_db)):
@@ -189,7 +269,7 @@ def get_client_contracts(client_id: str, db: Session = Depends(get_db)):
             "id": proj.id,
             "title": proj.title,
             "mitra_id": proj.mitra_id,     
-            "mitra": mitra_name,           
+            "mitra": mitra_name,            
             "type": proj.service_type,
             "status": proj.status,
             "budget": float(proj.budget) if proj.budget else 0,
@@ -200,10 +280,15 @@ def get_client_contracts(client_id: str, db: Session = Depends(get_db)):
     return result
 
 # ==========================================
-# 3. KONTRAK & BAST (RELEASE ESCROW DENGAN ALERT REAL-TIME)
+# 3. KONTRAK & BAST (RELEASE ESCROW, RATING & PERFORMA)
 # ==========================================
 @router.put("/{client_id}/contracts/{contract_id}/approve")
-async def approve_contract_uat(client_id: str, contract_id: str, db: Session = Depends(get_db)):
+async def approve_contract_uat(
+    client_id: str, 
+    contract_id: str, 
+    payload: UATApprovePayload = None, # Terima input bintang dari Klien
+    db: Session = Depends(get_db)
+):
     project = db.query(models.Project).filter(
         models.Project.id == contract_id, 
         models.Project.client_id == client_id
@@ -218,13 +303,14 @@ async def approve_contract_uat(client_id: str, contract_id: str, db: Session = D
     # 1. Hapus dana dari escrow klien
     client_wallet.escrow_balance -= budget_decimal
 
-    # 2. Pindahkan dana ke dompet mitra
+    # 2. Pindahkan dana ke dompet mitra & HITUNG PERFORMA (CMA)
     if project.mitra_id:
+        # A. Transfer Saldo
         mitra_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.mitra_id).first()
         if not mitra_wallet:
             mitra_wallet = models.Wallet(user_id=project.mitra_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
             db.add(mitra_wallet)
-        
+            
         mitra_wallet.balance += budget_decimal
 
         db.add(models.Transaction(
@@ -232,10 +318,36 @@ async def approve_contract_uat(client_id: str, contract_id: str, db: Session = D
             transaction_type="PENERIMAAN DANA (SPK SELESAI)", amount=budget_decimal, status="SUCCESS"
         ))
 
+        # =========================================================
+        # B. ALGORITMA PERHITUNGAN KINERJA (Cumulative Moving Avg)
+        # =========================================================
         mitra_profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == project.mitra_id).first()
         if mitra_profile:
-            current_completed = mitra_profile.projects_completed if mitra_profile.projects_completed else 0
+            # Cegah nilai Null (Cold Start)
+            current_completed = mitra_profile.projects_completed or 0
+            current_rating = float(mitra_profile.rating) if mitra_profile.rating else 0.0
+            current_speed = float(mitra_profile.avg_speed_days) if mitra_profile.avg_speed_days else 0.0
+
+            # Hitung Durasi (Delta T): Ambil tanggal project dibuat vs hari ini.
+            if hasattr(project, 'created_at') and project.created_at:
+                delta_t = (datetime.now() - project.created_at).days
+                if delta_t < 1:
+                    delta_t = 1
+            else:
+                delta_t = 1 # Fallback jika kolom created_at belum ada
+            
+            # Ambil rating baru dari Klien (Default 5.0)
+            new_star = payload.rating if payload else 5.0
+
+            # EKSEKUSI RUMUS: (Lama * N_Lama + Baru) / (N_Baru)
+            new_rating = ((current_rating * current_completed) + new_star) / (current_completed + 1)
+            new_speed = ((current_speed * current_completed) + delta_t) / (current_completed + 1)
+
+            # Suntikkan hasil hitungan kembali ke Database
+            mitra_profile.rating = round(new_rating, 2)
+            mitra_profile.avg_speed_days = round(new_speed, 1)
             mitra_profile.projects_completed = current_completed + 1
+        # =========================================================
 
     # Catat pengeluaran Klien
     db.add(models.Transaction(
@@ -259,7 +371,7 @@ async def approve_contract_uat(client_id: str, contract_id: str, db: Session = D
             db=db
         )
 
-    return {"status": "success", "message": "UAT Disetujui, Dana Dicairkan ke Mitra"}
+    return {"status": "success", "message": "UAT Disetujui, Dana & Rating Kinerja Berhasil Diperbarui"}
 
 # =========================================================================
 # PENOLAKAN UAT / PICU SENGKETA (DISPUTE DENGAN ALERT REAL-TIME)

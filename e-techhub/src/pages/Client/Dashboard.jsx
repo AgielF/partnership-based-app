@@ -4,8 +4,6 @@ import { getClientContracts, approveContractUAT, topUpOnline, getContractPDF, ge
 
 export default function ClientDashboard() {
   const [contracts, setContracts] = useState([]);
-  
-  // State dompet langsung dari Database
   const [wallet, setWallet] = useState({ balance: 0, escrow_balance: 0 });
   
   const clientId = localStorage.getItem('user_id');
@@ -28,24 +26,81 @@ export default function ClientDashboard() {
     fetchData();
   }, [clientId]);
 
-  const handleTopUp = async () => {
-    const nominal = prompt("SIMULASI PAYMENT GATEWAY\nMasukkan nominal Top-Up (Contoh: 1000000):");
-    if (nominal && !isNaN(nominal)) {
+ const handleTopUp = async () => {
+    const nominal = prompt("Masukkan nominal Top-Up (Contoh: 1000000):");
+    
+    if (nominal && !isNaN(nominal) && parseFloat(nominal) > 0) {
       try {
-        await topUpOnline(clientId, parseFloat(nominal));
-        alert("Top-up Berhasil! Saldo ditambahkan.");
-        fetchData();
+        // 1. CEK APAKAH SCRIPT MIDTRANS SUDAH TERLOAD DI BROWSER
+        if (!window.snap) {
+          alert("Sistem pembayaran (Midtrans) belum siap atau terblokir. Matikan AdBlocker atau refresh halaman.");
+          return;
+        }
+
+        console.log("Meminta token ke server untuk nominal:", nominal);
+        const responseData = await topUpOnline(clientId, parseFloat(nominal));
+        
+        console.log("Respon dari server:", responseData);
+        if (!responseData.token) {
+          throw new Error("Token Snap tidak diterima dari server. Cek Server Key Midtrans di Backend.");
+        }
+
+        console.log("Token didapat, membuka popup Midtrans...");
+        window.snap.pay(responseData.token, {
+          onSuccess: async function(result){
+            try {
+              // Hack khusus Localhost: Frontend yang memicu Webhook Backend
+              await fetch('http://127.0.0.1:8000/api/client/midtrans/webhook', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  order_id: result.order_id,
+                  transaction_status: 'settlement',
+                  fraud_status: 'accept'
+                })
+              });
+
+              alert("Pembayaran berhasil!");
+              fetchData(); 
+            } catch (error) {
+              console.error("Gagal memanggil webhook lokal:", error);
+            }
+          },
+          onPending: function(result){
+            alert("Menunggu pembayaran Anda. Silakan selesaikan instruksi.");
+          },
+          onError: function(result){
+            alert("Pembayaran gagal!");
+          },
+          onClose: function(){
+            alert("Anda menutup jendela pembayaran sebelum menyelesaikannya.");
+          }
+        });
+
       } catch (e) {
-        alert(e.message);
+        console.error("DETAIL ERROR:", e);
+        alert(`Gagal memproses pembayaran: ${e.message}`);
       }
+    } else {
+      alert("Nominal tidak valid.");
     }
   };
-
   const handleApproveUAT = async (contractId) => {
     if (window.confirm('Apakah Anda yakin hasil kerja sudah sesuai? Dana escrow akan dilepas ke Mitra.')) {
+      
+      // Minta Klien untuk memberikan rating (1-5)
+      let inputRating = prompt("Beri rating kinerja Mitra dari skala 1.0 hingga 5.0 (Contoh: 4.5):", "5.0");
+      let finalRating = parseFloat(inputRating);
+      
+      // Validasi Angka
+      if (isNaN(finalRating) || finalRating < 1.0 || finalRating > 5.0) {
+        alert("Format rating tidak valid, sistem secara default akan memberikan Bintang 5.0");
+        finalRating = 5.0;
+      }
+
       try {
-        await approveContractUAT(clientId, contractId);
-        alert('BAST Berhasil Diterbitkan! Kontrak Selesai & Dana Dicairkan.');
+        await approveContractUAT(clientId, contractId, finalRating); // Kirim rating ke backend
+        alert(`BAST Berhasil Diterbitkan! Anda memberikan bintang ${finalRating}.`);
         fetchData(); 
       } catch (error) {
         alert(`Gagal: ${error.message}`);
@@ -62,8 +117,6 @@ export default function ClientDashboard() {
       alert(`Gagal membuka PDF: ${error.message}`);
     }
   };
-
-  // RUMUS REDUCE TELAH DIHAPUS - DIGANTIKAN SEPENUHNYA DENGAN wallet.escrow_balance DARI DATABASE
 
   return (
     <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
@@ -97,7 +150,6 @@ export default function ClientDashboard() {
             <div className="border-t-4 border-black pt-4">
               <p className="text-xs font-bold uppercase text-gray-500">TERTENTU / DANA ESCROW KONTRAK</p>
               
-              {/* ANGKA ESCROW INI SEKARANG BERASAL LANGSUNG DARI MYSQL */}
               <p className="text-2xl font-black tracking-tighter text-red-600">
                 Rp {wallet.escrow_balance.toLocaleString('id-ID')}
               </p>
