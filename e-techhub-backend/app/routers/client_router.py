@@ -1,14 +1,16 @@
 import os
+import shutil
 import uuid
 import io
 from decimal import Decimal
 from datetime import datetime 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response, Request
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.sql import func
 from reportlab.pdfgen import canvas
 import midtransclient
 
@@ -36,6 +38,8 @@ class MitraPublicProfile(BaseModel):
     rating: float
     projects_completed: int
     hourly_rate_or_fee: str
+    avatar_url: Optional[str] = None
+    portfolio_link: Optional[str] = None
 
 class DeliverableReviewPayload(BaseModel):
     status: str 
@@ -43,6 +47,18 @@ class DeliverableReviewPayload(BaseModel):
 
 class UATApprovePayload(BaseModel):
     rating: float = 5.0 
+
+class ClientProfileUpdatePayload(BaseModel):
+    name: str
+    avatar_url: Optional[str] = None
+
+class ClientPublicProfile(BaseModel):
+    id: str
+    name_masked: str
+    is_payment_verified: bool
+    total_projects_posted: int
+    total_paid_to_mitra: float
+    avatar_url: Optional[str] = None
 
 # INISIALISASI MIDTRANS
 snap = midtransclient.Snap(
@@ -310,11 +326,14 @@ def get_mitra_public_profile(mitra_id: str, db: Session = Depends(get_db)):
     mitra_data = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
     if not mitra_data or not mitra_data.user: raise HTTPException(status_code=404)
     return {
-        "id": mitra_data.user_id, "name_masked": mask_name(mitra_data.user.name),
+        "id": mitra_data.user_id, 
+        "name_masked": mask_name(mitra_data.user.name),
         "specialty_role": mitra_data.specialty_role or "Spesialis Umum",
         "rating": float(mitra_data.rating) if mitra_data.rating else 0.0,
         "projects_completed": mitra_data.projects_completed or 0,
-        "hourly_rate_or_fee": mitra_data.hourly_rate_or_fee or "Tarif Negosiasi"
+        "hourly_rate_or_fee": mitra_data.hourly_rate_or_fee or "Tarif Negosiasi",
+        "avatar_url": mitra_data.avatar_url,
+        "portfolio_link": mitra_data.portfolio_link
     }
 
 @router.get("/projects/{project_id}/deliverables")
@@ -369,7 +388,6 @@ def get_project_bids(project_id: str, db: Session = Depends(get_db)):
 
 @router.post("/bids/{bid_id}/accept")
 async def accept_project_bid(bid_id: str, db: Session = Depends(get_db)):
-    """Klien menerima tawaran dengan penyesuaian Delta Escrow"""
     bid = db.query(models.ProjectBid).filter(models.ProjectBid.id == bid_id).first()
     if not bid:
         raise HTTPException(status_code=404, detail="Data penawaran tidak ditemukan.")
@@ -431,3 +449,94 @@ async def accept_project_bid(bid_id: str, db: Session = Depends(get_db)):
         message=f"Klien menerima penawaran Anda untuk proyek '{project.title}'.", db=db
     )
     return {"status": "success"}
+
+# =========================================================================
+# 4. MANAJEMEN PROFIL KLIEN (PRIVATE & PUBLIC)
+# =========================================================================
+CLIENT_AVATAR_DIR = "uploads/client_avatars"
+os.makedirs(CLIENT_AVATAR_DIR, exist_ok=True)
+
+@router.get("/{client_id}/private-profile")
+def get_client_private_profile(client_id: str, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == client_id, models.User.role == 'klien').first()
+    if not user: 
+        raise HTTPException(status_code=404, detail="Data klien tidak ditemukan")
+    
+    has_topup = db.query(models.Transaction).filter(
+        models.Transaction.user_id == client_id,
+        models.Transaction.transaction_type.like("%TOP UP%"),
+        models.Transaction.status == 'SUCCESS'
+    ).first()
+    
+    projects_count = db.query(models.Project).filter(models.Project.client_id == client_id).count()
+    paid_sum = db.query(func.sum(models.Project.budget)).filter(
+        models.Project.client_id == client_id,
+        models.Project.status == 'COMPLETED'
+    ).scalar() or 0.0
+
+    return {
+        "id": user.id,
+        "name": user.name,
+        "email": user.email,
+        "avatar_url": user.avatar_url or "",
+        "is_payment_verified": bool(has_topup),
+        "total_projects_posted": projects_count,
+        "total_paid_to_mitra": float(paid_sum)
+    }
+
+@router.get("/clients/{client_id}/public", response_model=ClientPublicProfile)
+def get_client_public_profile(client_id: str, db: Session = Depends(get_db)):
+    client_data = db.query(models.User).filter(models.User.id == client_id, models.User.role == 'klien').first()
+    if not client_data: raise HTTPException(status_code=404)
+    
+    has_topup = db.query(models.Transaction).filter(
+        models.Transaction.user_id == client_id,
+        models.Transaction.transaction_type.like("%TOP UP%"),
+        models.Transaction.status == 'SUCCESS'
+    ).first()
+    
+    projects_count = db.query(models.Project).filter(models.Project.client_id == client_id).count()
+    paid_sum = db.query(func.sum(models.Project.budget)).filter(
+        models.Project.client_id == client_id,
+        models.Project.status == 'COMPLETED'
+    ).scalar() or 0.0
+
+    return {
+        "id": client_data.id,
+        "name_masked": f"{client_data.name.strip().split()[0]} ***" if client_data.name else "Klien Rahasia",
+        "is_payment_verified": bool(has_topup),
+        "total_projects_posted": projects_count,
+        "total_paid_to_mitra": float(paid_sum),
+        "avatar_url": client_data.avatar_url
+    }
+
+@router.put("/{client_id}/profile")
+def update_client_profile(client_id: str, payload: ClientProfileUpdatePayload, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.id == client_id, models.User.role == 'klien').first()
+    if not user: 
+        raise HTTPException(status_code=404, detail="Data klien tidak ditemukan")
+
+    if payload.name:
+        user.name = payload.name
+        
+    if payload.avatar_url is not None:
+        user.avatar_url = payload.avatar_url
+
+    db.commit()
+    return {"status": "success", "message": "Profil Klien berhasil diperbarui"}
+
+@router.post("/{client_id}/upload-avatar")
+async def upload_client_avatar(client_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(status_code=400, detail="Format file harus JPG, PNG, atau WEBP")
+
+    file_extension = file.filename.split('.')[-1]
+    secure_filename = f"client_{client_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+    file_path = os.path.join(CLIENT_AVATAR_DIR, secure_filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    public_url = f"http://127.0.0.1:8000/uploads/client_avatars/{secure_filename}"
+
+    return {"status": "success", "url": public_url}

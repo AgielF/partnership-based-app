@@ -5,6 +5,9 @@ e-techhub-backend/.venv/
 *.pyc
 e-techhub-backend/.env
 
+# === USER DATA / UPLOADS (SANGAT PENTING) ===
+e-techhub-backend/uploads/
+
 # === NODE / FRONTEND JUNK ===
 e-techhub/node_modules/
 e-techhub/build/

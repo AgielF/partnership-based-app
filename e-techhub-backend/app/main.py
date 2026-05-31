@@ -6,6 +6,8 @@ from app.core.database import engine, Base
 from app.routers import admin_router, client_router, mitra_router, auth_router, chat_router
 from app.routers import notification_router
 
+from fastapi.staticfiles import StaticFiles
+
 # Otomatis membuat tabel jika belum ada di database
 Base.metadata.create_all(bind=engine)
 
@@ -29,6 +31,7 @@ app.include_router(client_router.router)
 app.include_router(mitra_router.router)
 app.include_router(chat_router.router)
 app.include_router(notification_router.router)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 @app.get("/")
 def health_check():

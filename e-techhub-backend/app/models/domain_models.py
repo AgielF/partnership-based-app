@@ -29,6 +29,7 @@ class User(Base):
     email = Column(String(100), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     role = Column(Enum('klien', 'mitra', 'admin'), nullable=False)
+    avatar_url = Column(String(255), nullable=True) # <-- TAMBAHAN BARU
     
     # Relasi
     mitra_profile = relationship("MitraProfile", back_populates="user", uselist=False, cascade="all, delete-orphan")
@@ -41,6 +42,12 @@ class MitraProfile(Base):
     specialty_role = Column(String(100), nullable=False)
     rating = Column(DECIMAL(3, 2), default=0.00)
     hourly_rate_or_fee = Column(String(50))
+    
+    # --- KOLOM BARU UNTUK FITUR PROFIL NEO-BRUTALIST ---
+    avatar_url = Column(String(255), nullable=True)
+    portfolio_link = Column(String(255), nullable=True)
+    # ---------------------------------------------------
+    
     avg_speed_days = Column(Integer, default=0)
     projects_completed = Column(Integer, default=0)
     
@@ -201,3 +208,4 @@ class SystemSetting(Base):
     setting_key = Column(String(50), primary_key=True)
     setting_value = Column(String(255), nullable=False)
     description = Column(Text)
+

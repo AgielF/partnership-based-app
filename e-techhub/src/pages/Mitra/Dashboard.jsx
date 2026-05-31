@@ -1,28 +1,46 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getMitraProjects, getMitraWallet, getMitraProfile, updateMitraProfile } from '../../services/api';
+import { getMitraProjects, getMitraWallet, getMitraProfile, updateMitraProfile, uploadMitraAvatar } from '../../services/api';
 
 // ==========================================
-// SUB-KOMPONEN: EDITOR PROFIL MITRA
+// SUB-KOMPONEN: EDITOR PROFIL MITRA (DENGAN FOTO)
 // ==========================================
 function MitraProfileEditor({ mitraId, initialData, onUpdateSuccess }) {
   const [formData, setFormData] = useState({
     specialty_role: initialData?.specialty_role || 'UMUM',
     hourly_rate_or_fee: initialData?.hourly_rate_or_fee || '',
+    portfolio_link: initialData?.portfolio_link || '',
     latitude: initialData?.latitude || '',
-    longitude: initialData?.longitude || ''
+    longitude: initialData?.longitude || '',
+    avatar_url: initialData?.avatar_url || '' 
   });
+  
   const [isSaving, setIsSaving] = useState(false);
   const [isLocating, setIsLocating] = useState(false);
+  
+  // STATE KHUSUS UNTUK FILE FOTO
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarPreview, setAvatarPreview] = useState(initialData?.avatar_url || null);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  // Fungsi Canggih: Tarik Lokasi GPS Otomatis
+  // Mekanisme Pratinjau (Preview) Foto sebelum diunggah
+  const handlePhotoChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        return alert("Ukuran foto maksimal 2MB!");
+      }
+      setAvatarFile(file);
+      setAvatarPreview(URL.createObjectURL(file)); 
+    }
+  };
+
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
-      return alert("Browser Anda tidak mendukung fitur GPS Geolocation.");
+      return alert("Browser Anda tidak mendukung fitur GPS.");
     }
     setIsLocating(true);
     navigator.geolocation.getCurrentPosition(
@@ -34,8 +52,8 @@ function MitraProfileEditor({ mitraId, initialData, onUpdateSuccess }) {
         });
         setIsLocating(false);
       },
-      (error) => {
-        alert("Gagal mendapatkan lokasi. Pastikan Anda mengizinkan akses GPS di Browser.");
+      () => {
+        alert("Gagal mendapatkan lokasi. Pastikan izin GPS menyala.");
         setIsLocating(false);
       }
     );
@@ -45,80 +63,147 @@ function MitraProfileEditor({ mitraId, initialData, onUpdateSuccess }) {
     e.preventDefault();
     setIsSaving(true);
     try {
+      let finalAvatarUrl = formData.avatar_url;
+
+      // 1. Jika user memilih foto baru, unggah fotonya terlebih dahulu
+      if (avatarFile) {
+        const uploadResponse = await uploadMitraAvatar(mitraId, avatarFile);
+        finalAvatarUrl = uploadResponse.url || uploadResponse.data?.url; 
+      }
+
+      // 2. Simpan seluruh data profil (termasuk URL foto baru jika ada)
       await updateMitraProfile(mitraId, {
         specialty_role: formData.specialty_role,
         hourly_rate_or_fee: formData.hourly_rate_or_fee,
+        portfolio_link: formData.portfolio_link,
+        avatar_url: finalAvatarUrl,
         latitude: parseFloat(formData.latitude) || null,
         longitude: parseFloat(formData.longitude) || null
       });
-      alert("PROFIL BERHASIL DISIMPAN!");
+      
+      alert("✅ Profil & Foto berhasil diperbarui!");
+      setAvatarFile(null); 
       if(onUpdateSuccess) onUpdateSuccess();
     } catch (error) {
-      alert(`GAGAL: ${error.message}`);
+      alert(`❌ Gagal: ${error.message}`);
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="border-4 border-black p-6 bg-blue-300 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] mb-8">
-      <h3 className="text-2xl font-black uppercase mb-4 border-b-4 border-black pb-2">⚙️ PENGATURAN PROFIL</h3>
+    <div className="border-4 border-black p-6 bg-white mb-8 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)]">
+      <h3 className="text-xl font-black uppercase mb-6 flex items-center gap-2 border-b-4 border-black pb-2 w-fit">
+        <span className="bg-black text-white px-2 py-1">⚙️</span> PENGATURAN PROFIL PUBLIK
+      </h3>
       
-      <form onSubmit={handleSave} className="space-y-4">
-        <div>
-          <label className="block text-xs font-black uppercase mb-1">Spesialisasi Utama (Bursa Kerja)</label>
-          <select 
-            name="specialty_role" 
-            value={formData.specialty_role} 
-            onChange={handleChange}
-            className="w-full border-4 border-black p-3 font-bold uppercase cursor-pointer"
-          >
-            <option value="UMUM">PILIH SPESIALISASI...</option>
-            <option value="SOFTWARE/WEB">SOFTWARE & WEB DEVELOPMENT</option>
-            <option value="IOT/EMBEDDED">IOT & EMBEDDED SYSTEM</option>
-            <option value="SERVIS HARDWARE">SERVIS HARDWARE / FISIK</option>
-            <option value="PERENTALAN">VENDOR RENTAL</option>
-          </select>
-        </div>
+      <form onSubmit={handleSave} className="flex flex-col md:flex-row gap-8">
+        
+        {/* ===================================== */}
+        {/* KOLOM KIRI: AREA FOTO PROFIL          */}
+        {/* ===================================== */}
+        <div className="flex flex-col items-center shrink-0 md:w-1/4">
+          
+          <div className="w-48 h-48 border-4 border-black bg-gray-100 overflow-hidden shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] flex items-center justify-center mb-4">
+            {avatarPreview ? (
+              <img src={avatarPreview} alt="Preview Avatar" className="w-full h-full object-cover" />
+            ) : (
+              <span className="text-6xl">📸</span>
+            )}
+          </div>
 
-        <div>
-          <label className="block text-xs font-black uppercase mb-1">Tarif Dasar / Estimasi Fee (Contoh: Rp 50.000/Jam)</label>
-          <input 
-            type="text" 
-            name="hourly_rate_or_fee" 
-            value={formData.hourly_rate_or_fee} 
-            onChange={handleChange}
-            placeholder="Ketik tarif dasar Anda..."
-            className="w-full border-4 border-black p-3 font-bold"
-          />
-        </div>
-
-        <div>
-          <label className="block text-xs font-black uppercase mb-1">Titik Koordinat (GPS untuk O2O Drop-Off)</label>
-          <div className="flex gap-2">
+          {/* TOMBOL PILIH FOTO YANG TERLIHAT JELAS (TIDAK SEMBUNYI LAGI) */}
+          <label className="w-48 bg-yellow-300 text-black border-4 border-black py-2 font-black uppercase text-sm text-center cursor-pointer shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-yellow-400 active:translate-y-1 active:shadow-none transition-all">
+            PILIH FOTO PROFIL
             <input 
-              type="text" 
-              readOnly 
-              value={formData.latitude ? `${formData.latitude}, ${formData.longitude}` : "LOKASI BELUM DIATUR"} 
-              className="w-full border-4 border-black p-3 font-bold text-gray-500 bg-gray-100"
+              type="file" 
+              accept="image/jpeg, image/png, image/webp" 
+              onChange={handlePhotoChange} 
+              className="hidden" 
             />
+          </label>
+
+          <p className="text-[10px] font-bold text-gray-500 uppercase text-center w-48 mt-2">
+            FORMAT JPG/PNG/WEBP. MAKS 2MB. RASIO 1:1 DISARANKAN.
+          </p>
+        </div>
+
+        {/* KOLOM KANAN: INPUT DATA PROFIL */}
+        <div className="grid md:grid-cols-2 gap-6 w-full">
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-black uppercase mb-1 text-gray-500">Spesialisasi Utama</label>
+              <select 
+                name="specialty_role" 
+                value={formData.specialty_role} 
+                onChange={handleChange}
+                className="w-full border-b-4 border-black bg-gray-50 p-3 font-bold uppercase focus:outline-none focus:bg-yellow-50"
+              >
+                <option value="UMUM">PILIH SPESIALISASI...</option>
+                <option value="SOFTWARE/WEB">SOFTWARE & WEB DEVELOPMENT</option>
+                <option value="IOT/EMBEDDED">IOT & EMBEDDED SYSTEM</option>
+                <option value="SERVIS HARDWARE">SERVIS HARDWARE / FISIK</option>
+                <option value="PERENTALAN">VENDOR RENTAL</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-black uppercase mb-1 text-gray-500">Tarif Dasar / Estimasi Fee</label>
+              <input 
+                type="text" 
+                name="hourly_rate_or_fee" 
+                value={formData.hourly_rate_or_fee} 
+                onChange={handleChange}
+                placeholder="Contoh: Rp 50.000/Jam"
+                className="w-full border-b-4 border-black bg-gray-50 p-3 font-bold focus:outline-none focus:bg-yellow-50"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-black uppercase mb-1 text-gray-500">Tautan Portofolio Eksternal</label>
+              <input 
+                type="url" 
+                name="portfolio_link" 
+                value={formData.portfolio_link} 
+                onChange={handleChange}
+                placeholder="Link GitHub, GitLab, atau Figma..."
+                className="w-full border-b-4 border-black bg-gray-50 p-3 font-bold focus:outline-none focus:bg-yellow-50"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-black uppercase mb-1 text-gray-500">Titik Koordinat GPS</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  readOnly 
+                  value={formData.latitude ? `${formData.latitude}, ${formData.longitude}` : "LOKASI BELUM DIATUR"} 
+                  className="w-full border-b-4 border-black p-3 font-bold text-gray-400 bg-gray-100 focus:outline-none"
+                />
+                <button 
+                  type="button" 
+                  onClick={handleGetLocation}
+                  className="bg-black text-white px-4 font-black uppercase hover:bg-gray-800 transition-colors whitespace-nowrap"
+                >
+                  {isLocating ? '⏳' : '📍 GPS'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Tombol Simpan */}
+          <div className="md:col-span-2 mt-2 pt-4 border-t-2 border-dashed border-gray-300">
             <button 
-              type="button" 
-              onClick={handleGetLocation}
-              className="bg-black text-white border-4 border-black px-4 font-black uppercase hover:bg-gray-800 transition active:translate-y-1"
+              type="submit" 
+              disabled={isSaving}
+              className="w-full bg-blue-600 text-white border-4 border-black py-4 font-black uppercase transition-all shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-blue-700 active:translate-y-1 active:shadow-none disabled:bg-gray-400 disabled:shadow-none"
             >
-              {isLocating ? 'MENCARI...' : '📍 LACAK GPS'}
+              {isSaving ? 'MENGUNGGAH & MENYIMPAN...' : '💾 SIMPAN PROFIL & FOTO'}
             </button>
           </div>
         </div>
-
-        <button 
-          type="submit" 
-          disabled={isSaving}
-          className="w-full mt-4 bg-white text-black border-4 border-black py-3 font-black uppercase transition shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] hover:bg-yellow-300 active:translate-y-1 active:shadow-none"
-        >
-          {isSaving ? 'MENYIMPAN DATA...' : '💾 SIMPAN PERUBAHAN PROFIL'}
-        </button>
       </form>
     </div>
   );
@@ -247,7 +332,7 @@ export default function MitraDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-white p-8 font-mono text-black">
+    <div className="min-h-screen bg-gray-50 p-6 md:p-10 font-mono text-black">
         
       {/* BANNER INDIKATOR MASA PERCOBAAN (PROBATION) */}
       {mitraProfile.kyc_status === 'VERIFIED' && mitraProfile.projects_completed < 10 && (
@@ -268,13 +353,13 @@ export default function MitraDashboard() {
       )}
 
       <div className="border-b-8 border-black pb-6 mb-8">
-        <h1 className="text-5xl font-black uppercase tracking-tighter">HUB UTAMA</h1>
+        <h1 className="text-5xl font-black uppercase tracking-tighter">HUB VENDOR</h1>
         <p className="text-sm font-bold uppercase mt-2 text-gray-600 tracking-widest">
-          RINGKASAN AKTIVITAS & IDENTITAS VENDOR
+          RINGKASAN AKTIVITAS & IDENTITAS PROFESIONAL
         </p>
       </div>
 
-      {/* COMPONENT: FORMULIR EDIT PROFIL */}
+      {/* COMPONENT: FORMULIR EDIT PROFIL (DENGAN UPLOAD FOTO) */}
       <MitraProfileEditor 
         mitraId={mitraId} 
         initialData={mitraProfile} 
@@ -285,7 +370,7 @@ export default function MitraDashboard() {
         {/* Kolom Kiri: QR Code Anti-Fraud (Validasi Fisik) */}
         <div className="border-4 border-black p-6 bg-yellow-300 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col items-center text-center">
           <h2 className="text-xl font-black uppercase mb-2 border-b-4 border-black pb-2 w-full">KARTU IDENTITAS MITRA</h2>
-          <p className="text-xs font-bold uppercase mb-6">TUNJUKKAN QR INI KE KASIR DROP-OFF CENTER UNTUK VALIDASI</p>
+          <p className="text-[10px] font-bold uppercase mb-6 text-gray-800">TUNJUKKAN QR INI KE KASIR DROP-OFF CENTER UNTUK VALIDASI</p>
           
           <div className="w-48 h-48 bg-white border-8 border-black flex items-center justify-center p-2 mb-6">
             <div 
@@ -309,12 +394,13 @@ export default function MitraDashboard() {
             <div className="border-4 border-black p-6 bg-white shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
               <div>
                 <p className="text-sm font-black uppercase text-gray-500 mb-2">PROYEK AKTIF (SPK)</p>
-                <p className="text-6xl font-black tracking-tighter">{activeProjectsCount}</p>
+                <p className="text-6xl font-black tracking-tighter text-blue-600">{activeProjectsCount}</p>
               </div>
-              <Link to="/mitra/projects" className="block mt-4 text-xs font-bold uppercase underline hover:bg-black hover:text-white w-fit px-2 transition-colors">
-                LIHAT PROYEK &rarr;
+              <Link to="/mitra/workspace" className="block mt-4 text-xs font-bold uppercase underline hover:bg-black hover:text-white w-fit px-2 py-1 transition-colors">
+                BUKA WORKSPACE &rarr;
               </Link>
             </div>
+            
             <div className="border-4 border-black p-6 bg-green-400 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] flex flex-col justify-between">
               <div>
                 <p className="text-sm font-black uppercase text-black mb-2">SALDO CAIR</p>
@@ -322,17 +408,19 @@ export default function MitraDashboard() {
                   Rp {walletBalance.toLocaleString('id-ID')}
                 </p>
               </div>
-              <Link to="/mitra/wallet" className="block mt-4 text-xs font-bold uppercase underline hover:bg-black hover:text-white w-fit px-2 transition-colors">
+              <Link to="/mitra/wallet" className="block mt-4 text-xs font-bold uppercase underline hover:bg-black hover:text-white w-fit px-2 py-1 transition-colors">
                 TARIK DANA &rarr;
               </Link>
             </div>
           </div>
 
-          <div className="border-4 border-black p-6 bg-gray-50">
+          <div className="border-4 border-black p-6 bg-white">
             <h3 className="text-lg font-black uppercase border-b-4 border-black pb-2 mb-4">PENGUMUMAN SISTEM</h3>
             <div className="border-l-8 border-black pl-4">
-              <p className="font-bold text-sm uppercase">Pembaruan Modul E-Contract</p>
-              <p className="text-xs mt-1">Pastikan Anda selalu menekan tombol "Ajukan UAT" setelah milestone selesai agar BAST dapat diterbitkan secara otomatis.</p>
+              <p className="font-bold text-sm uppercase">Pembaruan Portofolio & Foto Profil</p>
+              <p className="text-xs mt-1 text-gray-600">
+                Fitur baru! Anda kini bisa menyematkan tautan repositori GitHub dan mengunggah Foto Profil untuk meningkatkan kepercayaan Klien saat melihat lamaran Anda.
+              </p>
             </div>
           </div>
         </div>

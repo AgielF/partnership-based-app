@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
-import NotificationBell from '../components/NotificationBell'; // <--- 1. IMPORT NOTIFICATION BELL
+import NotificationBell from '../components/NotificationBell'; 
+import { getMitraProfile } from '../services/api'; // <-- IMPORT FUNGSI INI
 
 export default function MitraLayout() {
   const location = useLocation();
@@ -8,11 +9,30 @@ export default function MitraLayout() {
 
   // State Dinamis
   const [userName, setUserName] = useState('MITRA');
+  const [userAvatar, setUserAvatar] = useState(null); // State untuk Foto Profil
 
   useEffect(() => {
     const name = localStorage.getItem('name');
+    const mitraId = localStorage.getItem('user_id');
+    
     if (name) setUserName(name);
-  }, []);
+
+    // Tarik data profil untuk mendapatkan avatar_url
+    const fetchAvatar = async () => {
+      if (mitraId) {
+        try {
+          const profileData = await getMitraProfile(mitraId);
+          if (profileData && profileData.avatar_url) {
+            setUserAvatar(profileData.avatar_url);
+          }
+        } catch (error) {
+          console.error("Gagal menarik avatar untuk Header:", error);
+        }
+      }
+    };
+
+    fetchAvatar();
+  }, [location.pathname]); // Efek ini akan di-trigger (di-refresh) setiap kali pengguna berpindah halaman
 
   const handleLogout = () => {
     localStorage.clear();
@@ -24,12 +44,12 @@ export default function MitraLayout() {
     { name: 'BURSA KERJA', path: '/mitra/jobs', icon: '🎯' },
     { name: 'SALDO ESCROW', path: '/mitra/wallet', icon: '💵' },
     { name: 'INBOX', path: '/mitra/MitraInbox', icon: '✉️' },
-      { name: 'WORKSPACE', path: '/mitra/workspace', icon: '🛠️' },
+    { name: 'WORKSPACE', path: '/mitra/workspace', icon: '🛠️' },
   ];
 
   return (
     <div className="flex h-screen bg-white font-mono text-black border-[16px] border-black overflow-hidden">
-      <aside className="w-72 bg-white border-r-8 border-black flex flex-col z-10">
+      <aside className="w-72 bg-white border-r-8 border-black flex flex-col z-10 shrink-0">
         <div className="p-6 border-b-8 border-black bg-yellow-300">
           <h2 className="text-4xl font-black uppercase tracking-tighter italic underline decoration-black underline-offset-4 mb-2">
             MITRA HUB
@@ -54,10 +74,10 @@ export default function MitraLayout() {
             </Link>
           ))}
         </nav>
-        <div className="border-t-8 border-black">
+        <div className="border-t-8 border-black shrink-0">
           <button 
             onClick={handleLogout}
-            className="w-full bg-red-600 text-white font-black uppercase px-6 py-6 hover:bg-red-700 transition-colors"
+            className="w-full bg-red-600 text-white font-black uppercase px-6 py-6 hover:bg-red-700 transition-colors shadow-[0px_-4px_0px_0px_rgba(0,0,0,1)] relative z-20"
           >
             KELUAR
           </button>
@@ -65,26 +85,37 @@ export default function MitraLayout() {
       </aside>
 
       <main className="flex-1 flex flex-col overflow-y-auto bg-white relative">
-        <header className="bg-white h-20 border-b-8 border-black flex items-center justify-between px-8 sticky top-0 z-10">
+        <header className="bg-white h-20 border-b-8 border-black flex items-center justify-between px-8 sticky top-0 z-20">
           <div className="flex items-center gap-3 border-4 border-black px-3 py-1 bg-green-400 font-black text-sm uppercase">
              <div className="w-3 h-3 bg-black rounded-full animate-ping"></div>
              TERSEDIA UNTUK KERJA
           </div>
 
-          {/* 2. HEADER KANAN (LONCENG NOTIFIKASI + PROFIL) */}
+          {/* HEADER KANAN (LONCENG NOTIFIKASI + PROFIL) */}
           <div className="flex items-center gap-6 uppercase font-black">
              
              {/* TEMPATKAN KOMPONEN LONCENG DI SINI */}
              <NotificationBell />
 
-             {/* Menampilkan sebagian nama mitra (nama depan) */}
-             <span className="text-sm">{userName.split(' ')[0]} | VENDOR</span>
-             <div className="w-12 h-12 border-4 border-black bg-yellow-300 text-black flex items-center justify-center text-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] uppercase">
-               {userName.charAt(0)}
+             {/* INFO PROFIL & AVATAR */}
+             <div className="flex items-center gap-3 border-l-4 border-black pl-6">
+                <span className="text-sm tracking-tighter">{userName.split(' ')[0]} | VENDOR</span>
+                
+                {/* LINGKARAN/KOTAK AVATAR */}
+                <div className="w-12 h-12 border-4 border-black bg-yellow-300 text-black flex items-center justify-center text-2xl shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] uppercase overflow-hidden">
+                  {userAvatar ? (
+                    <img src={userAvatar} alt="Profile" className="w-full h-full object-cover" />
+                  ) : (
+                    userName.charAt(0) // Tampilkan inisial huruf jika belum ada foto
+                  )}
+                </div>
              </div>
+
           </div>
         </header>
-        <div className="p-0">
+        
+        {/* AREA KONTEN (PAGES) */}
+        <div className="p-0 flex-1 relative z-0">
           <Outlet />
         </div>
       </main>

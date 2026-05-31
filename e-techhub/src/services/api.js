@@ -498,3 +498,51 @@ export const acceptProjectBid = async (clientId, bidId) => {
 // ALIAS UNTUK KOMPONEN BARU
 // ==========================================
 export const getDeliverables = getProjectDeliverables;
+
+
+// Tambahkan ini di bagian paling bawah api.js Anda
+export const uploadMitraAvatar = async (mitraId, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  
+  const response = await fetch(`${BASE_URL}/mitra/${mitraId}/upload-avatar`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengunggah foto profil');
+  return data;
+};
+
+// Mengupdate Profil Klien (Nama / Deskripsi / Avatar)
+export const updateClientProfile = async (clientId, profileData) => {
+  const response = await fetch(`${BASE_URL}/client/${clientId}/profile`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profileData),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal memperbarui profil klien');
+  return data;
+};
+
+// Mengunggah Foto Profil Klien
+export const uploadClientAvatar = async (clientId, file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+  
+  const response = await fetch(`${BASE_URL}/client/${clientId}/upload-avatar`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengunggah foto');
+  return data;
+};
+
+// Mengambil Profil Klien (Bukan Publik, melainkan Private untuk Dashboard)
+export const getClientPrivateProfile = async (clientId) => {
+  const response = await fetch(`${BASE_URL}/client/${clientId}/private-profile`);
+  if (!response.ok) throw new Error('Gagal menarik profil klien');
+  return response.json();
+};

@@ -25,12 +25,6 @@ class TakeJobRequest(BaseModel):
 class ReviewRequest(BaseModel):
     rating: int
 
-class ProfileUpdateRequest(BaseModel):
-    specialty_role: str
-    hourly_rate_or_fee: str
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
-
 class ProgressUpdate(BaseModel):
     mitra_id: str
     milestone_text: str
@@ -53,6 +47,15 @@ class BidSubmitPayload(BaseModel):
     mitra_id: str
     bid_amount: float
     cover_letter: str
+
+# Skema Profile Update yang sudah disatukan dan lengkap
+class ProfileUpdateRequest(BaseModel):
+    specialty_role: str
+    hourly_rate_or_fee: str
+    portfolio_link: Optional[str] = None  # <-- Tambahan baru
+    avatar_url: Optional[str] = None      # <-- Tambahan baru
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 # =========================================================================
 # PAPAN DISKUSI TERBUKA (Q&A)
@@ -197,23 +200,49 @@ def get_mitra_wallet(mitra_id: str, db: Session = Depends(get_db)):
 def get_mitra_profile(mitra_id: str, db: Session = Depends(get_db)):
     profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
     if not profile: raise HTTPException(status_code=404)
-    active_count = db.query(models.Project).filter(models.Project.mitra_id == mitra_id, models.Project.status.in_(["SEDANG DIKERJAKAN", "MENUNGGU UAT", "DISPUTED"])).count()
+    
+    active_count = db.query(models.Project).filter(
+        models.Project.mitra_id == mitra_id, 
+        models.Project.status.in_(["SEDANG DIKERJAKAN", "MENUNGGU UAT", "DISPUTED"])
+    ).count()
+    
     return {
-        "user_id": profile.user_id, "kyc_status": profile.kyc_status, "projects_completed": profile.projects_completed,
-        "active_projects": active_count, "rating": float(profile.rating), "specialty_role": profile.specialty_role,
+        "user_id": profile.user_id, 
+        "kyc_status": profile.kyc_status, 
+        "projects_completed": profile.projects_completed,
+        "active_projects": active_count, 
+        "rating": float(profile.rating), 
+        "specialty_role": profile.specialty_role,
         "hourly_rate_or_fee": profile.hourly_rate_or_fee or "",
-        "latitude": float(profile.latitude) if profile.latitude else None, "longitude": float(profile.longitude) if profile.longitude else None
+        "latitude": float(profile.latitude) if profile.latitude else None, 
+        "longitude": float(profile.longitude) if profile.longitude else None,
+        
+        # Data untuk Foto dan Portofolio dikirimkan ke frontend
+        "avatar_url": profile.avatar_url or "",
+        "portfolio_link": profile.portfolio_link or ""
     }
 
 @router.put("/{mitra_id}/profile")
 def update_mitra_profile(mitra_id: str, payload: ProfileUpdateRequest, db: Session = Depends(get_db)):
     profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
     if not profile: raise HTTPException(status_code=404)
+    
+    # 1. Update data dasar
     profile.specialty_role = payload.specialty_role
     profile.hourly_rate_or_fee = payload.hourly_rate_or_fee
+    
+    # 2. Update koordinat GPS
     if payload.latitude is not None and payload.longitude is not None:
         profile.latitude = payload.latitude
         profile.longitude = payload.longitude
+
+    # 3. Update Foto & Portofolio (Fungsi yang sebelumnya terlewat)
+    if payload.avatar_url is not None:
+        profile.avatar_url = payload.avatar_url
+        
+    if payload.portfolio_link is not None:
+        profile.portfolio_link = payload.portfolio_link
+        
     db.commit()
     return {"status": "success"}
 
@@ -315,3 +344,28 @@ async def submit_milestone_work(project_id: str, deliverable_id: int, payload: D
     else:
         db.commit()
     return {"status": "success", "data": deliverable}
+
+# Buat direktori khusus avatar jika belum ada
+AVATAR_DIR = "uploads/avatars"
+os.makedirs(AVATAR_DIR, exist_ok=True)
+
+@router.post("/{mitra_id}/upload-avatar")
+async def upload_mitra_avatar(mitra_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    # 1. Validasi Ekstensi Gambar
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(status_code=400, detail="Format file harus JPG, PNG, atau WEBP")
+
+    # 2. Buat Nama File Unik (Contoh: avatar_VND-123_a1b2c3d4.jpg)
+    file_extension = file.filename.split('.')[-1]
+    secure_filename = f"avatar_{mitra_id}_{uuid.uuid4().hex[:8]}.{file_extension}"
+    file_path = os.path.join(AVATAR_DIR, secure_filename)
+
+    # 3. Simpan File Secara Fisik ke Hardisk Server
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # 4. Susun URL Akses Publik (Sesuaikan IP dengan konfigurasi Anda)
+    # Jika server berjalan di 192.168.110.187, kembalikan URL tersebut
+    public_url = f"http://127.0.0.1:8000/uploads/avatars/{secure_filename}"
+
+    return {"status": "success", "url": public_url}
