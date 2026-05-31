@@ -2,10 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { getClientContracts, approveContractUAT, topUpOnline, getContractPDF, getClientWallet } from '../../services/api';
 
+// 1. IMPORT MODAL BIDS REVIEW
+import BidsReviewModal from '../../components/BidsReviewModal';
+
 export default function ClientDashboard() {
   const [contracts, setContracts] = useState([]);
   const [wallet, setWallet] = useState({ balance: 0, escrow_balance: 0 });
   
+  // 2. STATE UNTUK MENGONTROL MODAL BIDS
+  const [reviewingProjectId, setReviewingProjectId] = useState(null);
+
   const clientId = localStorage.getItem('user_id');
   const navigate = useNavigate();
 
@@ -26,12 +32,11 @@ export default function ClientDashboard() {
     fetchData();
   }, [clientId]);
 
- const handleTopUp = async () => {
+  const handleTopUp = async () => {
     const nominal = prompt("Masukkan nominal Top-Up (Contoh: 1000000):");
     
     if (nominal && !isNaN(nominal) && parseFloat(nominal) > 0) {
       try {
-        // 1. CEK APAKAH SCRIPT MIDTRANS SUDAH TERLOAD DI BROWSER
         if (!window.snap) {
           alert("Sistem pembayaran (Midtrans) belum siap atau terblokir. Matikan AdBlocker atau refresh halaman.");
           return;
@@ -85,21 +90,20 @@ export default function ClientDashboard() {
       alert("Nominal tidak valid.");
     }
   };
+
   const handleApproveUAT = async (contractId) => {
     if (window.confirm('Apakah Anda yakin hasil kerja sudah sesuai? Dana escrow akan dilepas ke Mitra.')) {
       
-      // Minta Klien untuk memberikan rating (1-5)
       let inputRating = prompt("Beri rating kinerja Mitra dari skala 1.0 hingga 5.0 (Contoh: 4.5):", "5.0");
       let finalRating = parseFloat(inputRating);
       
-      // Validasi Angka
       if (isNaN(finalRating) || finalRating < 1.0 || finalRating > 5.0) {
         alert("Format rating tidak valid, sistem secara default akan memberikan Bintang 5.0");
         finalRating = 5.0;
       }
 
       try {
-        await approveContractUAT(clientId, contractId, finalRating); // Kirim rating ke backend
+        await approveContractUAT(clientId, contractId, finalRating); 
         alert(`BAST Berhasil Diterbitkan! Anda memberikan bintang ${finalRating}.`);
         fetchData(); 
       } catch (error) {
@@ -119,7 +123,18 @@ export default function ClientDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black">
+    <div className="min-h-screen bg-white p-6 md:p-10 font-mono text-black relative">
+      
+      {/* 3. TAMPILKAN MODAL BIDS REVIEW JIKA ADA PROYEK YANG DIKLIK */}
+      {reviewingProjectId && (
+        <BidsReviewModal 
+          projectId={reviewingProjectId} 
+          clientId={clientId} 
+          onClose={() => setReviewingProjectId(null)} 
+          onSuccess={fetchData} 
+        />
+      )}
+
       <header className="flex flex-col md:flex-row justify-between items-end border-b-8 border-black pb-6 mb-10">
         <div>
           <h1 className="text-5xl font-black uppercase tracking-tighter">KLIEN HUB</h1>
@@ -135,6 +150,7 @@ export default function ClientDashboard() {
 
       <div className="grid lg:grid-cols-3 gap-10">
         
+        {/* PANEL KIRI: DOMPET & HISTORI */}
         <div className="space-y-6">
           <div className="border-4 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] bg-blue-50">
             <h2 className="text-xl font-black uppercase mb-4 border-b-4 border-black pb-2">SALDO DOMPET</h2>
@@ -149,7 +165,6 @@ export default function ClientDashboard() {
 
             <div className="border-t-4 border-black pt-4">
               <p className="text-xs font-bold uppercase text-gray-500">TERTENTU / DANA ESCROW KONTRAK</p>
-              
               <p className="text-2xl font-black tracking-tighter text-red-600">
                 Rp {wallet.escrow_balance.toLocaleString('id-ID')}
               </p>
@@ -172,6 +187,7 @@ export default function ClientDashboard() {
           </div>
         </div>
 
+        {/* PANEL KANAN: DAFTAR PROYEK (E-CONTRACT) */}
         <div className="lg:col-span-2">
           <h2 className="text-3xl font-black uppercase mb-6 flex items-center gap-4">
             <span className="bg-black text-white px-3 py-1">E-CONTRACT</span> AKTIF
@@ -181,40 +197,59 @@ export default function ClientDashboard() {
             {contracts.length === 0 ? (
               <p className="font-bold uppercase text-gray-500 border-4 border-black p-6">TIDAK ADA KONTRAK AKTIF.</p>
             ) : contracts.map((contract) => (
-              <div key={contract.id} className="border-4 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] bg-white hover:bg-gray-50 transition">
-                <div className="flex justify-between items-start border-b-4 border-black pb-4 mb-4">
-                  <div>
-                    <h3 className="text-2xl font-black uppercase">{contract.title}</h3>
-                    <p className="text-sm font-bold mt-1 uppercase text-gray-600">MITRA: {contract.mitra}</p>
+              <div key={contract.id} className="border-4 border-black p-6 shadow-[8px_8px_0px_0px_rgba(0,0,0,1)] bg-white hover:bg-gray-50 transition flex flex-col justify-between">
+                
+                <div>
+                  <div className="flex justify-between items-start border-b-4 border-black pb-4 mb-4">
+                    <div>
+                      <h3 className="text-2xl font-black uppercase">{contract.title}</h3>
+                      <p className="text-sm font-bold mt-1 uppercase text-gray-600">
+                        MITRA: {contract.mitra || "BELUM ADA (MENUNGGU PELAMAR)"}
+                      </p>
+                    </div>
+                    <span className={`px-4 py-2 text-sm font-black uppercase border-4 border-black text-center ${
+                      contract.status === 'COMPLETED' ? 'bg-green-400' : 
+                      contract.status === 'MENUNGGU UAT' ? 'bg-yellow-400' : 
+                      contract.status === 'OPEN' ? 'bg-blue-300' : 'bg-white'
+                    }`}>
+                      {contract.status}
+                    </span>
                   </div>
-                  <span className={`px-4 py-2 text-sm font-black uppercase border-4 border-black ${
-                    contract.status === 'COMPLETED' ? 'bg-green-400' : 
-                    contract.status === 'MENUNGGU UAT' ? 'bg-yellow-400' : 'bg-white'
-                  }`}>
-                    {contract.status}
-                  </span>
+
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div>
+                      <p className="text-xs font-black uppercase text-gray-500">ID Dokumen</p>
+                      <p className="font-bold">{contract.id}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase text-gray-500">Jalur Layanan</p>
+                      <p className="font-bold">{contract.type}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase text-gray-500">Milestone Saat Ini</p>
+                      <p className="font-bold">{contract.milestone || "-"}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-black uppercase text-gray-500">Nilai Anggaran</p>
+                      <p className="font-bold font-sans tracking-tight">Rp {contract.budget.toLocaleString('id-ID')}</p>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mb-6">
-                  <div>
-                    <p className="text-xs font-black uppercase text-gray-500">ID Dokumen</p>
-                    <p className="font-bold">{contract.id}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-black uppercase text-gray-500">Jalur Layanan</p>
-                    <p className="font-bold">{contract.type}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-black uppercase text-gray-500">Milestone Saat Ini</p>
-                    <p className="font-bold">{contract.milestone}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs font-black uppercase text-gray-500">Nilai Escrow</p>
-                    <p className="font-bold font-sans tracking-tight">{contract.escrow}</p>
-                  </div>
-                </div>
+                {/* 4. AREA TOMBOL AKSI DINAMIS BERDASARKAN STATUS PROYEK */}
+                <div className="flex flex-col sm:flex-row gap-4 mt-auto border-t-4 border-black pt-4">
+                  
+                  {/* JIKA STATUS MASIH OPEN: TAMPILKAN TOMBOL LIHAT BIDS */}
+                  {contract.status === 'OPEN' && (
+                    <button 
+                      onClick={() => setReviewingProjectId(contract.id)}
+                      className="w-full bg-yellow-300 text-black border-4 border-black py-3 font-black uppercase hover:bg-yellow-400 transition active:translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none"
+                    >
+                      👀 LIHAT PELAMAR (BIDS)
+                    </button>
+                  )}
 
-                <div className="flex gap-4">
+                  {/* JIKA MENUNGGU UAT: TAMPILKAN TOMBOL APPROVE UAT */}
                   {contract.status === 'MENUNGGU UAT' && (
                     <button 
                       onClick={() => handleApproveUAT(contract.id)}
@@ -223,12 +258,17 @@ export default function ClientDashboard() {
                       SETUJUI UAT (RELEASE DANA)
                     </button>
                   )}
-                  <button 
-                    onClick={() => handleViewPDF(contract.id)}
-                    className="flex-1 bg-white text-black border-4 border-black py-3 font-black uppercase hover:bg-gray-100 transition active:translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none"
-                  >
-                    LIHAT PDF SPK
-                  </button>
+
+                  {/* JIKA BUKAN OPEN (SUDAH ADA MITRA/KONTRAK): TAMPILKAN TOMBOL PDF */}
+                  {contract.status !== 'OPEN' && (
+                    <button 
+                      onClick={() => handleViewPDF(contract.id)}
+                      className="flex-1 bg-white text-black border-4 border-black py-3 font-black uppercase hover:bg-gray-100 transition active:translate-y-1 shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] active:shadow-none"
+                    >
+                      LIHAT PDF SPK
+                    </button>
+                  )}
+                  
                 </div>
               </div>
             ))}

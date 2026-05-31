@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost
--- Generation Time: May 20, 2026 at 07:07 AM
+-- Generation Time: May 31, 2026 at 03:45 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -86,7 +86,7 @@ CREATE TABLE `mitra_profiles` (
 
 INSERT INTO `mitra_profiles` (`user_id`, `specialty_role`, `rating`, `hourly_rate_or_fee`, `avg_speed_days`, `projects_completed`, `kyc_status`, `latitude`, `longitude`) VALUES
 ('VND-4EE93994', 'General IT Vendor', 0.00, NULL, 0, 1, 'VERIFIED', NULL, NULL),
-('VND-AF4AAF20', 'IOT/EMBEDDED', 0.00, '50000', 0, 1, 'VERIFIED', -6.92020000, 107.60840000);
+('VND-AF4AAF20', 'IOT/EMBEDDED', 2.50, '50000', 0, 2, 'VERIFIED', -6.92020000, 107.60840000);
 
 -- --------------------------------------------------------
 
@@ -113,7 +113,10 @@ INSERT INTO `notifications` (`id`, `user_id`, `title`, `message`, `is_read`, `cr
 (3, 'VND-4EE93994', 'STATUS BUKTI KERJA: DITOLAK ❌ (BUTUH REVISI)', 'Klien telah mengevaluasi berkas \'Tahap 2: Implementasi Sistem\' untuk proyek: \'PEMBUATAN BACKEND DENGAN SPRING\'.', 1, '2026-05-19 17:27:19'),
 (4, 'USER-4E2582C4', '📈 MITRA MENYERAHKAN BUKTI KERJA', 'Mitra mengirimkan dokumen/tautan artefak untuk \'Tahap 2: Implementasi Sistem\'. Silakan periksa kembali halaman kontrak Anda.', 1, '2026-05-19 17:28:42'),
 (5, 'VND-4EE93994', 'STATUS BUKTI KERJA: DISETUJUI ✅', 'Klien telah mengevaluasi berkas \'Tahap 2: Implementasi Sistem\' untuk proyek: \'PEMBUATAN BACKEND DENGAN SPRING\'.', 0, '2026-05-19 17:29:13'),
-(6, 'VND-4EE93994', '💰 DANA ESCROW CAIR / SPK SELESAI', 'Klien menyetujui UAT proyek \'PEMBUATAN BACKEND DENGAN SPRING\'. Dana Rp 1,000 telah masuk ke saldo utama Anda.', 0, '2026-05-19 17:30:29');
+(6, 'VND-4EE93994', '💰 DANA ESCROW CAIR / SPK SELESAI', 'Klien menyetujui UAT proyek \'PEMBUATAN BACKEND DENGAN SPRING\'. Dana Rp 1,000 telah masuk ke saldo utama Anda.', 0, '2026-05-19 17:30:29'),
+(7, 'VND-AF4AAF20', '💰 DANA ESCROW CAIR / SPK SELESAI', 'Klien menyetujui UAT proyek \'pembuatan API \'. Dana Rp 10,000 telah masuk ke saldo utama Anda.', 0, '2026-05-24 06:10:48'),
+(8, 'USER-4E2582C4', '🎯 PENAWARAN BARU MASUK', 'Ada penawaran masuk sebesar Rp 50,000 untuk proyek \'PEMBUATAN FRONTEND \'.', 0, '2026-05-30 18:35:16'),
+(9, 'VND-AF4AAF20', '🎉 PENAWARAN DITERIMA!', 'Selamat! Klien menerima penawaran Anda untuk proyek \'PEMBUATAN FRONTEND \'.', 0, '2026-05-30 18:40:27');
 
 -- --------------------------------------------------------
 
@@ -139,9 +142,33 @@ CREATE TABLE `projects` (
 --
 
 INSERT INTO `projects` (`id`, `client_id`, `mitra_id`, `title`, `description`, `service_type`, `status`, `current_milestone`, `budget`, `deadline_days`) VALUES
-('JOB-2026-571F', 'USER-4E2582C4', NULL, 'PEMBUATAN FRONTEND ', 'Pembuatan VUE dengan dokumen yang diberikan', 'SOFTWARE/WEB', 'OPEN', NULL, 25000.00, 14),
+('JOB-2026-28AC', 'USER-4E2582C4', 'VND-AF4AAF20', 'pembuatan API ', 'pembuatan api', 'SOFTWARE/WEB', 'COMPLETED', '[24/05 20:10] BAST Diterbitkan. Proyek Selesai.', 10000.00, 13),
+('JOB-2026-571F', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN FRONTEND ', 'Pembuatan VUE dengan dokumen yang diberikan', 'SOFTWARE/WEB', 'SEDANG DIKERJAKAN', 'Kontrak resmi dimulai dengan putra.', 50000.00, 14),
 ('JOB-2026-B86E', 'USER-4E2582C4', 'VND-AF4AAF20', 'PEMBUATAN HIDROPONIK BERBASIS IOT', 'pembuatan hidroponik berbasis IOT', 'IOT/EMBEDDED', 'COMPLETED', '[19/05 05:46] BAST Diterbitkan. Proyek Selesai.', 50000.00, 14),
 ('JOB-2026-F61E', 'USER-4E2582C4', 'VND-4EE93994', 'PEMBUATAN BACKEND DENGAN SPRING', 'microservice java ', 'SOFTWARE/WEB', 'COMPLETED', '[20/05 07:30] BAST Diterbitkan. Proyek Selesai.', 1000.00, 14);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `project_bids`
+--
+
+CREATE TABLE `project_bids` (
+  `id` varchar(50) NOT NULL,
+  `project_id` varchar(50) NOT NULL,
+  `mitra_id` varchar(50) NOT NULL,
+  `bid_amount` decimal(15,2) NOT NULL,
+  `cover_letter` text NOT NULL,
+  `status` varchar(20) NOT NULL,
+  `created_at` datetime DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `project_bids`
+--
+
+INSERT INTO `project_bids` (`id`, `project_id`, `mitra_id`, `bid_amount`, `cover_letter`, `status`, `created_at`) VALUES
+('BID-DD2E86', 'JOB-2026-571F', 'VND-AF4AAF20', 50000.00, 'Saya pernah mengerjaklan project serupa dengan tech stack berbeda ', 'ACCEPTED', '2026-05-31 01:35:16');
 
 -- --------------------------------------------------------
 
@@ -167,7 +194,13 @@ CREATE TABLE `project_deliverables` (
 INSERT INTO `project_deliverables` (`id`, `project_id`, `title`, `description`, `submission_link`, `status`, `feedback`, `updated_at`) VALUES
 (1, 'JOB-2026-F61E', 'Tahap 1: Desain & Arsitektur', 'Penyerahan mock-up UI/UX atau skema rancangan IoT hardware.', NULL, 'PENDING', NULL, '2026-05-19 17:09:01'),
 (2, 'JOB-2026-F61E', 'Tahap 2: Implementasi Sistem', 'Pengembangan fungsionalitas inti, integrasi API, atau perakitan hardware.', 'https://github.com/AgielF/app1', 'APPROVED', '', '2026-05-19 17:29:13'),
-(3, 'JOB-2026-F61E', 'Tahap 3: Hasil Akhir & Dokumentasi', 'Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik.', NULL, 'PENDING', NULL, '2026-05-19 17:09:01');
+(3, 'JOB-2026-F61E', 'Tahap 3: Hasil Akhir & Dokumentasi', 'Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik.', NULL, 'PENDING', NULL, '2026-05-19 17:09:01'),
+(4, 'JOB-2026-28AC', 'Tahap 1: Desain & Arsitektur', 'Penyerahan mock-up UI/UX atau skema rancangan IoT hardware.', NULL, 'PENDING', NULL, '2026-05-24 06:08:57'),
+(5, 'JOB-2026-28AC', 'Tahap 2: Implementasi Sistem', 'Pengembangan fungsionalitas inti, integrasi API, atau perakitan hardware.', NULL, 'PENDING', NULL, '2026-05-24 06:08:57'),
+(6, 'JOB-2026-28AC', 'Tahap 3: Hasil Akhir & Dokumentasi', 'Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik.', NULL, 'PENDING', NULL, '2026-05-24 06:08:57'),
+(7, 'JOB-2026-571F', 'Tahap 1: Desain & Arsitektur', 'Penyerahan mock-up UI/UX atau skema rancangan IoT hardware.', NULL, 'PENDING', NULL, '2026-05-30 18:40:27'),
+(8, 'JOB-2026-571F', 'Tahap 2: Implementasi Sistem', 'Pengembangan fungsionalitas inti, integrasi API, atau perakitan hardware.', NULL, 'PENDING', NULL, '2026-05-30 18:40:27'),
+(9, 'JOB-2026-571F', 'Tahap 3: Hasil Akhir & Dokumentasi', 'Penyelesaian source code akhir, pengujian sistem, atau drop-off perangkat fisik.', NULL, 'PENDING', NULL, '2026-05-30 18:40:27');
 
 -- --------------------------------------------------------
 
@@ -210,7 +243,8 @@ INSERT INTO `project_tags` (`project_id`, `tag_id`) VALUES
 ('JOB-2026-B86E', 1),
 ('JOB-2026-B86E', 2),
 ('JOB-2026-571F', 3),
-('JOB-2026-F61E', 4);
+('JOB-2026-F61E', 4),
+('JOB-2026-28AC', 5);
 
 -- --------------------------------------------------------
 
@@ -251,6 +285,7 @@ INSERT INTO `tags` (`id`, `tag_name`) VALUES
 (1, 'C++'),
 (4, 'JAVA'),
 (2, 'PYTHON'),
+(5, 'REACT'),
 (3, 'VUE');
 
 -- --------------------------------------------------------
@@ -275,16 +310,21 @@ CREATE TABLE `transactions` (
 
 INSERT INTO `transactions` (`id`, `user_id`, `project_id`, `transaction_type`, `amount`, `status`, `created_at`) VALUES
 ('TRX-120E5F717A', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 10000.00, 'PENDING', '2026-05-20 11:09:16'),
+('TRX-1F00A79477', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 15000.00, 'PENDING', '2026-05-20 12:30:13'),
 ('TRX-94188C9FA1', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 10000.00, 'SUCCESS', '2026-05-20 11:43:42'),
+('TRX-AF876496B8', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (MIDTRANS)', 10000.00, 'PENDING', '2026-05-20 12:27:40'),
 ('TRX-ESC-5091', 'USER-4E2582C4', 'JOB-2026-B86E', 'PENAHANAN DANA (ESCROW)', -50000.00, 'SUCCESS', '2026-05-17 11:16:49'),
+('TRX-ESC-6DF6', 'USER-4E2582C4', 'JOB-2026-28AC', 'PENAHANAN DANA (ESCROW)', -10000.00, 'SUCCESS', '2026-05-20 12:34:17'),
 ('TRX-ESC-B27C', 'USER-4E2582C4', 'JOB-2026-F61E', 'PENAHANAN DANA (ESCROW)', -1000.00, 'SUCCESS', '2026-05-20 07:05:16'),
 ('TRX-ESC-ED8A', 'USER-4E2582C4', 'JOB-2026-571F', 'PENAHANAN DANA (ESCROW)', -25000.00, 'SUCCESS', '2026-05-19 15:35:36'),
 ('TRX-IN-403B', 'VND-4EE93994', 'JOB-2026-F61E', 'PENERIMAAN DANA (SPK SELESAI)', 1000.00, 'SUCCESS', '2026-05-20 07:30:29'),
+('TRX-IN-584B', 'VND-AF4AAF20', 'JOB-2026-28AC', 'PENERIMAAN DANA (SPK SELESAI)', 10000.00, 'SUCCESS', '2026-05-24 20:10:47'),
 ('TRX-IN-A6D2', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
 ('TRX-IN-FF78', 'VND-AF4AAF20', 'JOB-2026-B86E', 'PENERIMAAN DANA (SPK SELESAI)', 50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
 ('TRX-OUT-634C', 'USER-4E2582C4', 'JOB-2026-F61E', 'BAST TERBIT (ESCROW RELEASE)', -1000.00, 'SUCCESS', '2026-05-20 07:30:29'),
 ('TRX-OUT-B642', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-17 13:31:37'),
 ('TRX-OUT-F0F9', 'USER-4E2582C4', 'JOB-2026-B86E', 'BAST TERBIT (ESCROW RELEASE)', -50000.00, 'SUCCESS', '2026-05-19 05:46:13'),
+('TRX-OUT-F668', 'USER-4E2582C4', 'JOB-2026-28AC', 'BAST TERBIT (ESCROW RELEASE)', -10000.00, 'SUCCESS', '2026-05-24 20:10:47'),
 ('TRX-PG-7B01', 'USER-4E2582C4', NULL, 'TOP UP ONLINE (PAYMENT GATEWAY)', 100000.00, 'SUCCESS', '2026-05-17 11:16:07');
 
 -- --------------------------------------------------------
@@ -330,9 +370,9 @@ CREATE TABLE `wallets` (
 
 INSERT INTO `wallets` (`user_id`, `balance`, `escrow_balance`) VALUES
 ('ADM-47F0D9', 0.00, 0.00),
-('USER-4E2582C4', 34000.00, -25000.00),
+('USER-4E2582C4', 24000.00, -25000.00),
 ('VND-4EE93994', 1000.00, 0.00),
-('VND-AF4AAF20', 100000.00, 0.00);
+('VND-AF4AAF20', 110000.00, 0.00);
 
 --
 -- Indexes for dumped tables
@@ -373,6 +413,15 @@ ALTER TABLE `projects`
   ADD PRIMARY KEY (`id`),
   ADD KEY `client_id` (`client_id`),
   ADD KEY `mitra_id` (`mitra_id`);
+
+--
+-- Indexes for table `project_bids`
+--
+ALTER TABLE `project_bids`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `project_id` (`project_id`),
+  ADD KEY `mitra_id` (`mitra_id`),
+  ADD KEY `ix_project_bids_id` (`id`);
 
 --
 -- Indexes for table `project_deliverables`
@@ -445,13 +494,13 @@ ALTER TABLE `chat_messages`
 -- AUTO_INCREMENT for table `notifications`
 --
 ALTER TABLE `notifications`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=7;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `project_deliverables`
 --
 ALTER TABLE `project_deliverables`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=10;
 
 --
 -- AUTO_INCREMENT for table `project_qna`
@@ -463,7 +512,7 @@ ALTER TABLE `project_qna`
 -- AUTO_INCREMENT for table `tags`
 --
 ALTER TABLE `tags`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=5;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=6;
 
 --
 -- Constraints for dumped tables
@@ -500,6 +549,13 @@ ALTER TABLE `notifications`
 ALTER TABLE `projects`
   ADD CONSTRAINT `projects_ibfk_1` FOREIGN KEY (`client_id`) REFERENCES `users` (`id`),
   ADD CONSTRAINT `projects_ibfk_2` FOREIGN KEY (`mitra_id`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `project_bids`
+--
+ALTER TABLE `project_bids`
+  ADD CONSTRAINT `project_bids_ibfk_1` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`),
+  ADD CONSTRAINT `project_bids_ibfk_2` FOREIGN KEY (`mitra_id`) REFERENCES `users` (`id`);
 
 --
 -- Constraints for table `project_deliverables`

@@ -5,7 +5,6 @@ from decimal import Decimal
 from datetime import datetime 
 from typing import List, Optional
 
-# 1. SATUKAN IMPORT FASTAPI
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -19,7 +18,9 @@ from app.routers.notification_router import notif_manager
 
 router = APIRouter(prefix="/api/client", tags=["Client"])
 
-# --- Skema Input untuk POST Project DIUPDATE ---
+# =========================================================================
+# SKEMA PYDANTIC
+# =========================================================================
 class ProjectCreate(BaseModel):
     title: str
     service_type: str
@@ -27,13 +28,6 @@ class ProjectCreate(BaseModel):
     description: str
     deadline_days: int          
     tags: Optional[List[str]] = []
-
-# 2. GUNAKAN ENVIRONMENT VARIABLE UNTUK MIDTRANS
-snap = midtransclient.Snap(
-    is_production=False,
-    server_key=os.getenv("MIDTRANS_SERVER_KEY", ""),
-    client_key=os.getenv("MIDTRANS_CLIENT_KEY", "")
-)
 
 class MitraPublicProfile(BaseModel):
     id: str
@@ -44,17 +38,22 @@ class MitraPublicProfile(BaseModel):
     hourly_rate_or_fee: str
 
 class DeliverableReviewPayload(BaseModel):
-    status: str # Wajib bernilai 'APPROVED' atau 'REVISION_REQUESTED'
+    status: str 
     feedback: Optional[str] = None
 
-# SKEMA BARU UNTUK RATING UAT
 class UATApprovePayload(BaseModel):
-    rating: float = 5.0 # Secara default memberi Bintang 5.0 jika Klien tidak mengisi
+    rating: float = 5.0 
+
+# INISIALISASI MIDTRANS
+snap = midtransclient.Snap(
+    is_production=False,
+    server_key=os.getenv("MIDTRANS_SERVER_KEY", ""),
+    client_key=os.getenv("MIDTRANS_CLIENT_KEY", "")
+)
 
 # ==========================================
 # 1. MANAJEMEN DOMPET & KEUANGAN
 # ==========================================
-
 @router.get("/{client_id}/wallet")
 def get_client_wallet(client_id: str, db: Session = Depends(get_db)):
     wallet = db.query(models.Wallet).filter(models.Wallet.user_id == client_id).first()
@@ -68,90 +67,57 @@ def get_client_wallet(client_id: str, db: Session = Depends(get_db)):
 @router.post("/{client_id}/topup/online")
 def topup_wallet_online(client_id: str, payload: dict, db: Session = Depends(get_db)):
     try:
-        amount = int(Decimal(str(payload.get("amount", 0)))) # Midtrans butuh format integer
+        amount = int(Decimal(str(payload.get("amount", 0))))
     except:
         raise HTTPException(status_code=400, detail="Format angka tidak valid")
         
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Nominal tidak valid")
 
-    # Ambil data user untuk info pelanggan di Midtrans
     user = db.query(models.User).filter(models.User.id == client_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User tidak ditemukan")
         
-    # 1. Buat Order ID & Catat Transaksi sebagai PENDING
     trx_id = f"TRX-{uuid.uuid4().hex[:10].upper()}"
     new_trx = models.Transaction(
-        id=trx_id, 
-        user_id=client_id, 
-        transaction_type="TOP UP ONLINE (MIDTRANS)",
-        amount=amount, 
-        status="PENDING" # Saldo BELUM bertambah
+        id=trx_id, user_id=client_id, transaction_type="TOP UP ONLINE (MIDTRANS)",
+        amount=amount, status="PENDING" 
     )
     db.add(new_trx)
     db.commit()
     
-    # 2. Siapkan parameter untuk dikirim ke Midtrans
     param = {
-        "transaction_details": {
-            "order_id": trx_id,
-            "gross_amount": amount
-        },
-        "customer_details": {
-            "first_name": user.name,
-            "email": user.email
-        }
+        "transaction_details": {"order_id": trx_id, "gross_amount": amount},
+        "customer_details": {"first_name": user.name, "email": user.email}
     }
 
     try:
-        # 3. Minta Token Snap ke server Midtrans
         transaction = snap.create_transaction(param)
-        return {
-            "status": "success", 
-            "message": "Token berhasil dibuat", 
-            "token": transaction['token']
-        }
+        return {"status": "success", "message": "Token dibuat", "token": transaction['token']}
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Gagal menghubungi Midtrans: {str(e)}")
 
-# ==========================================
-# 1.B. WEBHOOK (CRITICAL): Mendengarkan Notifikasi Midtrans
-# ==========================================
 @router.post("/midtrans/webhook")
 async def midtrans_webhook(request: Request, db: Session = Depends(get_db)):
     payload = await request.json()
-    
     order_id = payload.get('order_id')
     transaction_status = payload.get('transaction_status')
     fraud_status = payload.get('fraud_status')
 
-    # Cari transaksi di database
     trx = db.query(models.Transaction).filter(models.Transaction.id == order_id).first()
-    if not trx:
-        return {"status": "ignored", "message": "Transaksi tidak ditemukan"}
+    if not trx or trx.status == 'SUCCESS':
+        return {"status": "ignored"}
 
-    # Jika sudah SUCCESS, hiraukan (menghindari double webhook)
-    if trx.status == 'SUCCESS':
-        return {"status": "ignored", "message": "Transaksi sudah diproses sebelumnya"}
-
-    # Analisis Status Midtrans
-    if transaction_status == 'capture' or transaction_status == 'settlement':
-        if fraud_status != 'challenge':
-            # PEMBAYARAN BERHASIL -> UPDATE STATUS DAN TAMBAH SALDO
-            trx.status = 'SUCCESS'
-            
-            wallet = db.query(models.Wallet).filter(models.Wallet.user_id == trx.user_id).first()
-            if not wallet:
-                wallet = models.Wallet(user_id=trx.user_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
-                db.add(wallet)
-            
-            wallet.balance += trx.amount
-            db.commit()
-            
+    if transaction_status in ['capture', 'settlement'] and fraud_status != 'challenge':
+        trx.status = 'SUCCESS'
+        wallet = db.query(models.Wallet).filter(models.Wallet.user_id == trx.user_id).first()
+        if not wallet:
+            wallet = models.Wallet(user_id=trx.user_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
+            db.add(wallet)
+        wallet.balance += trx.amount
+        db.commit()
     elif transaction_status in ['cancel', 'deny', 'expire']:
-        # PEMBAYARAN GAGAL/EXPIRED
         trx.status = 'FAILED'
         db.commit()
 
@@ -163,34 +129,29 @@ def get_client_transactions(client_id: str, db: Session = Depends(get_db)):
     result = []
     for t in trx:
         prefix = "+" if t.amount >= 0 else "-"
-        amount_formatted = f"{prefix} Rp {abs(t.amount):,.0f}".replace(",", ".")
-        date_str = t.created_at.strftime("%d %b %Y").upper() if t.created_at else "HARI INI"
         result.append({
             "id": t.id,
-            "date": date_str,
+            "date": t.created_at.strftime("%d %b %Y").upper() if t.created_at else "HARI INI",
             "type": t.transaction_type,
-            "amount": amount_formatted,
+            "amount": f"{prefix} Rp {abs(t.amount):,.0f}".replace(",", "."),
             "status": t.status
         })
     return result
 
-
 # ==========================================
-# 2. MANAJEMEN PROYEK (SPK) & ESCROW
+# 2. MANAJEMEN PROYEK & KONTRAK
 # ==========================================
-
 @router.get("/mitras")
 def get_mitra_directory(db: Session = Depends(get_db)):
     mitras = db.query(models.MitraProfile).join(models.User).all()
     result = []
     for m in mitras:
-        tags = ["TERVERIFIKASI", m.specialty_role.split()[0].upper()]
         result.append({
             "id": m.user_id,
             "name": m.user.name,
             "role": m.specialty_role,
             "rating": str(m.rating),
-            "tags": tags,
+            "tags": ["TERVERIFIKASI", m.specialty_role.split()[0].upper()],
             "rate": m.hourly_rate_or_fee or "Hubungi Langsung"
         })
     return result
@@ -198,119 +159,69 @@ def get_mitra_directory(db: Session = Depends(get_db)):
 @router.post("/{client_id}/projects")
 def create_new_project(client_id: str, project: ProjectCreate, db: Session = Depends(get_db)):
     budget_decimal = Decimal(str(project.budget))
-    
-    # KUNCI ESCROW: Cek saldo & potong dana
     wallet = db.query(models.Wallet).filter(models.Wallet.user_id == client_id).first()
     
     if not wallet or wallet.balance < budget_decimal:
-        raise HTTPException(
-            status_code=400, 
-            detail="Saldo Available tidak mencukupi. Silakan Top-Up terlebih dahulu."
-        )
+        raise HTTPException(status_code=400, detail="Saldo tidak mencukupi.")
 
     wallet.balance -= budget_decimal
     wallet.escrow_balance += budget_decimal
 
-    # BUAT PROYEK BARU DENGAN DEADLINE
     unique_proj_id = f"JOB-2026-{uuid.uuid4().hex[:4].upper()}"
     new_project = models.Project(
-        id=unique_proj_id,
-        client_id=client_id,
-        title=project.title,
-        service_type=project.service_type,
-        budget=budget_decimal,
-        description=project.description,
-        deadline_days=project.deadline_days,
-        status="OPEN"
+        id=unique_proj_id, client_id=client_id, title=project.title,
+        service_type=project.service_type, budget=budget_decimal,
+        description=project.description, deadline_days=project.deadline_days, status="OPEN"
     )
     
-    # PROSES TAGS (RELASI MANY-TO-MANY)
     for tag_name in project.tags:
         tag_clean = tag_name.strip().upper()
-        if not tag_clean:
-            continue
-            
+        if not tag_clean: continue
         existing_tag = db.query(models.Tag).filter(models.Tag.tag_name == tag_clean).first()
-        
         if not existing_tag:
             existing_tag = models.Tag(tag_name=tag_clean)
             db.add(existing_tag)
             db.flush()
-            
         new_project.tags.append(existing_tag)
 
     db.add(new_project)
-
-    # CATAT TRANSAKSI PENAHANAN
-    trx_id = f"TRX-ESC-{uuid.uuid4().hex[:4].upper()}"
-    new_trx = models.Transaction(
-        id=trx_id, user_id=client_id, project_id=unique_proj_id,
-        transaction_type="PENAHANAN DANA (ESCROW)",
-        amount=-budget_decimal, status="SUCCESS"
-    )
-    db.add(new_trx)
+    db.add(models.Transaction(
+        id=f"TRX-ESC-{uuid.uuid4().hex[:4].upper()}", user_id=client_id, project_id=unique_proj_id,
+        transaction_type="PENAHANAN DANA (ESCROW)", amount=-budget_decimal, status="SUCCESS"
+    ))
     
-    try:
-        db.commit()
-        return {"status": "success", "message": "Proyek publikasi. Dana ditahan.", "project_id": unique_proj_id}
-    except SQLAlchemyError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail="Gagal menyimpan ke database.")
+    db.commit()
+    return {"status": "success", "message": "Proyek dipublikasi.", "project_id": unique_proj_id}
 
 @router.get("/{client_id}/contracts")
 def get_client_contracts(client_id: str, db: Session = Depends(get_db)):
     projects = db.query(models.Project).filter(models.Project.client_id == client_id).all()
-    
     result = []
     for proj in projects:
-        mitra_name = proj.mitra.name if getattr(proj, 'mitra', None) else proj.mitra_id
-        
         result.append({
-            "id": proj.id,
-            "title": proj.title,
-            "mitra_id": proj.mitra_id,     
-            "mitra": mitra_name,            
-            "type": proj.service_type,
-            "status": proj.status,
+            "id": proj.id, "title": proj.title, "mitra_id": proj.mitra_id,     
+            "mitra": proj.mitra.name if getattr(proj, 'mitra', None) else proj.mitra_id,            
+            "type": proj.service_type, "status": proj.status,
             "budget": float(proj.budget) if proj.budget else 0,
-            "deadline_days": proj.deadline_days,
-            "current_milestone": proj.current_milestone 
+            "deadline_days": proj.deadline_days, "current_milestone": proj.current_milestone 
         })
-        
     return result
 
-# ==========================================
-# 3. KONTRAK & BAST (RELEASE ESCROW, RATING & PERFORMA)
-# ==========================================
 @router.put("/{client_id}/contracts/{contract_id}/approve")
-async def approve_contract_uat(
-    client_id: str, 
-    contract_id: str, 
-    payload: UATApprovePayload = None, # Terima input bintang dari Klien
-    db: Session = Depends(get_db)
-):
-    project = db.query(models.Project).filter(
-        models.Project.id == contract_id, 
-        models.Project.client_id == client_id
-    ).first()
-    
+async def approve_contract_uat(client_id: str, contract_id: str, payload: UATApprovePayload = None, db: Session = Depends(get_db)):
+    project = db.query(models.Project).filter(models.Project.id == contract_id, models.Project.client_id == client_id).first()
     if not project or project.status != "MENUNGGU UAT":
-        raise HTTPException(status_code=400, detail="Kontrak tidak valid atau belum UAT")
+        raise HTTPException(status_code=400, detail="Kontrak tidak valid/belum UAT")
 
     client_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == client_id).first()
     budget_decimal = Decimal(str(project.budget))
-    
-    # 1. Hapus dana dari escrow klien
     client_wallet.escrow_balance -= budget_decimal
 
-    # 2. Pindahkan dana ke dompet mitra & HITUNG PERFORMA (CMA)
     if project.mitra_id:
-        # A. Transfer Saldo
         mitra_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.mitra_id).first()
         if not mitra_wallet:
             mitra_wallet = models.Wallet(user_id=project.mitra_id, balance=Decimal('0.00'), escrow_balance=Decimal('0.00'))
             db.add(mitra_wallet)
-            
         mitra_wallet.balance += budget_decimal
 
         db.add(models.Transaction(
@@ -318,240 +229,205 @@ async def approve_contract_uat(
             transaction_type="PENERIMAAN DANA (SPK SELESAI)", amount=budget_decimal, status="SUCCESS"
         ))
 
-        # =========================================================
-        # B. ALGORITMA PERHITUNGAN KINERJA (Cumulative Moving Avg)
-        # =========================================================
         mitra_profile = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == project.mitra_id).first()
         if mitra_profile:
-            # Cegah nilai Null (Cold Start)
             current_completed = mitra_profile.projects_completed or 0
             current_rating = float(mitra_profile.rating) if mitra_profile.rating else 0.0
             current_speed = float(mitra_profile.avg_speed_days) if mitra_profile.avg_speed_days else 0.0
-
-            # Hitung Durasi (Delta T): Ambil tanggal project dibuat vs hari ini.
-            if hasattr(project, 'created_at') and project.created_at:
-                delta_t = (datetime.now() - project.created_at).days
-                if delta_t < 1:
-                    delta_t = 1
-            else:
-                delta_t = 1 # Fallback jika kolom created_at belum ada
-            
-            # Ambil rating baru dari Klien (Default 5.0)
+            delta_t = (datetime.now() - project.created_at).days if hasattr(project, 'created_at') and project.created_at else 1
+            if delta_t < 1: delta_t = 1
             new_star = payload.rating if payload else 5.0
-
-            # EKSEKUSI RUMUS: (Lama * N_Lama + Baru) / (N_Baru)
             new_rating = ((current_rating * current_completed) + new_star) / (current_completed + 1)
             new_speed = ((current_speed * current_completed) + delta_t) / (current_completed + 1)
-
-            # Suntikkan hasil hitungan kembali ke Database
             mitra_profile.rating = round(new_rating, 2)
             mitra_profile.avg_speed_days = round(new_speed, 1)
             mitra_profile.projects_completed = current_completed + 1
-        # =========================================================
 
-    # Catat pengeluaran Klien
     db.add(models.Transaction(
         id=f"TRX-OUT-{uuid.uuid4().hex[:4].upper()}", user_id=client_id, project_id=contract_id,
         transaction_type="BAST TERBIT (ESCROW RELEASE)", amount=-budget_decimal, status="SUCCESS"
     ))
 
-    # Update Status Proyek
     project.status = "COMPLETED"
-    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] BAST Diterbitkan. Proyek Selesai."
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] BAST Diterbitkan."
     db.commit()
 
-    # -------------------------------------------------------------------------
-    # PUSH REAL-TIME PEMBERITAHUAN: Cairkan Lonceng ke Mitra bahwa Dana Masuk!
-    # -------------------------------------------------------------------------
     if project.mitra_id:
         await notif_manager.send_personal_notification(
-            user_id=project.mitra_id,
-            title="💰 DANA ESCROW CAIR / SPK SELESAI",
-            message=f"Klien menyetujui UAT proyek '{project.title}'. Dana Rp {float(budget_decimal):,.0f} telah masuk ke saldo utama Anda.",
-            db=db
+            user_id=project.mitra_id, title="💰 DANA ESCROW CAIR",
+            message=f"Dana Rp {float(budget_decimal):,.0f} dari '{project.title}' masuk ke saldo Anda.", db=db
         )
+    return {"status": "success"}
 
-    return {"status": "success", "message": "UAT Disetujui, Dana & Rating Kinerja Berhasil Diperbarui"}
-
-# =========================================================================
-# PENOLAKAN UAT / PICU SENGKETA (DISPUTE DENGAN ALERT REAL-TIME)
-# =========================================================================
 @router.put("/{client_id}/contracts/{contract_id}/reject")
 async def reject_contract_uat(client_id: str, contract_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(
-        models.Project.id == contract_id, 
-        models.Project.client_id == client_id
-    ).first()
-    
+    project = db.query(models.Project).filter(models.Project.id == contract_id, models.Project.client_id == client_id).first()
     if not project or project.status != "MENUNGGU UAT":
-        raise HTTPException(status_code=400, detail="Kontrak tidak valid atau belum masuk tahap UAT")
-
-    # Ubah status menjadi Sengketa (Disputed)
+        raise HTTPException(status_code=400, detail="Kontrak tidak valid.")
     project.status = "DISPUTED"
-    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ❌ UAT DITOLAK KLIEN. Proyek masuk status Sengketa (Arbitrase Admin)."
+    project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ❌ UAT DITOLAK KLIEN."
     db.commit()
-
-    # -------------------------------------------------------------------------
-    # PUSH REAL-TIME PEMBERITAHUAN: Kirim Peringatan keras langsung ke layar Mitra
-    # -------------------------------------------------------------------------
     if project.mitra_id:
         await notif_manager.send_personal_notification(
-            user_id=project.mitra_id,
-            title="🚨 PERINGATAN SENGKETA (DISPUTE ACTIVE)",
-            message=f"Klien menolak hasil akhir UAT Proyek '{project.title}'. Kontrak dibekukan untuk penyelidikan Admin.",
-            db=db
+            user_id=project.mitra_id, title="🚨 PERINGATAN SENGKETA",
+            message=f"Klien menolak UAT Proyek '{project.title}'.", db=db
         )
-
-    return {"status": "success", "message": "Proyek ditangguhkan. Admin akan meninjau sengketa ini."}
+    return {"status": "success", "message": "Proyek ditangguhkan."}
 
 @router.get("/{client_id}/contracts/{contract_id}/pdf")
 def generate_contract_pdf(client_id: str, contract_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(
-        models.Project.id == contract_id,
-        models.Project.client_id == client_id
-    ).first()
-
-    if not project:
-        raise HTTPException(status_code=404, detail="Kontrak tidak ditemukan")
-
+    project = db.query(models.Project).filter(models.Project.id == contract_id, models.Project.client_id == client_id).first()
+    if not project: raise HTTPException(status_code=404, detail="Kontrak tidak ditemukan")
     buffer = io.BytesIO()
     pdf = canvas.Canvas(buffer)
-    
     pdf.setFont("Helvetica-Bold", 16)
     pdf.drawString(170, 800, "SURAT PERINTAH KERJA (SPK)")
-    
     pdf.setFont("Helvetica", 12)
     pdf.drawString(50, 750, f"ID Kontrak   : {project.id}")
     pdf.drawString(50, 730, f"Judul Proyek : {project.title}")
-    pdf.drawString(50, 710, f"Tipe Layanan : {project.service_type}")
-    pdf.drawString(50, 690, f"Nilai Escrow : Rp {project.budget:,.0f}".replace(",", "."))
-    
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(50, 640, "Pihak Pertama (Klien):")
-    pdf.setFont("Helvetica", 12)
-    client_name = project.client.name if getattr(project, 'client', None) else project.client_id
-    pdf.drawString(50, 620, client_name)
-    
-    mitra_name = project.mitra.name if getattr(project, 'mitra', None) else (project.mitra_id or "Menunggu Bursa Kerja")
-    pdf.setFont("Helvetica-Bold", 12)
-    pdf.drawString(300, 640, "Pihak Kedua (Mitra):")
-    pdf.setFont("Helvetica", 12)
-    pdf.drawString(300, 620, mitra_name)
-    
-    pdf.line(50, 580, 550, 580)
-    pdf.setFont("Helvetica-Oblique", 10)
-    pdf.drawString(50, 560, "Pernyataan Click-Wrap Agreement:")
-    pdf.drawString(50, 545, "Dokumen ini dicetak otomatis oleh sistem E-TechHub dan sah secara elektronik")
-    pdf.drawString(50, 530, "mengikat kedua belah pihak sesuai ketentuan UU ITE yang berlaku.")
-    
+    pdf.drawString(50, 710, f"Nilai Escrow : Rp {project.budget:,.0f}".replace(",", "."))
     pdf.showPage()
     pdf.save()
-    
     buffer.seek(0)
     return Response(content=buffer.getvalue(), media_type="application/pdf")
 
-# ==========================================
-# E-CONTRACT / PERSETUJUAN KLIEN
-# ==========================================
 @router.put("/contracts/{project_id}/sign")
 def sign_client_contract(project_id: str, client_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(
-        models.Project.id == project_id,
-        models.Project.client_id == client_id
-    ).first()
-
-    if not project:
-        raise HTTPException(status_code=404, detail="Proyek atau kontrak tidak ditemukan.")
-
-    if project.status in ["COMPLETED", "CANCELLED"]:
-        raise HTTPException(status_code=400, detail="Kontrak sudah tidak bisa ditandatangani.")
-
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.client_id == client_id).first()
+    if not project or project.status in ["COMPLETED", "CANCELLED"]:
+        raise HTTPException(status_code=400, detail="Kontrak tidak valid.")
     project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] Kontrak disetujui Klien via Click-Wrap."
-    
     db.commit()
-    return {"status": "success", "message": "Click-Wrap Agreement berhasil disahkan secara hukum."}
+    return {"status": "success"}
 
 def mask_name(full_name: str) -> str:
-    if not full_name:
-        return "Anonim"
+    if not full_name: return "Anonim"
     parts = full_name.strip().split()
-    if len(parts) > 1:
-        return f"{parts[0]} {parts[1][0]}."
-    return full_name
+    return f"{parts[0]} {parts[1][0]}." if len(parts) > 1 else full_name
 
-# ==========================================
-# ENDPOINT: LIHAT PROFIL PUBLIK MITRA
-# ==========================================
 @router.get("/mitras/{mitra_id}/public", response_model=MitraPublicProfile)
 def get_mitra_public_profile(mitra_id: str, db: Session = Depends(get_db)):
     mitra_data = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == mitra_id).first()
-    
-    if not mitra_data or not mitra_data.user:
-        raise HTTPException(status_code=404, detail="Profil Mitra tidak ditemukan")
-
+    if not mitra_data or not mitra_data.user: raise HTTPException(status_code=404)
     return {
-        "id": mitra_data.user_id,
-        "name_masked": mask_name(mitra_data.user.name),
+        "id": mitra_data.user_id, "name_masked": mask_name(mitra_data.user.name),
         "specialty_role": mitra_data.specialty_role or "Spesialis Umum",
         "rating": float(mitra_data.rating) if mitra_data.rating else 0.0,
         "projects_completed": mitra_data.projects_completed or 0,
         "hourly_rate_or_fee": mitra_data.hourly_rate_or_fee or "Tarif Negosiasi"
     }
 
-# ==========================================
-# FITUR BARU: REVIEW LOOP DELIVERABLES (SUNTIK UPDATE LONCENG)
-# ==========================================
 @router.get("/projects/{project_id}/deliverables")
 def get_client_project_deliverables(project_id: str, db: Session = Depends(get_db)):
-    """Klien melihat seluruh daftar bukti kerja dan status pengerjaan Mitra"""
-    deliverables = db.query(models.ProjectDeliverable).filter(
-        models.ProjectDeliverable.project_id == project_id
-    ).order_by(models.ProjectDeliverable.id.asc()).all()
-    return deliverables
+    return db.query(models.ProjectDeliverable).filter(models.ProjectDeliverable.project_id == project_id).order_by(models.ProjectDeliverable.id.asc()).all()
 
 @router.put("/projects/{project_id}/deliverables/{deliverable_id}/review")
 async def review_mitra_work(project_id: str, deliverable_id: int, payload: DeliverableReviewPayload, db: Session = Depends(get_db)):
-    """Klien meloloskan atau merevisi berkas progres sekaligus melempar sinyal lonceng ke Mitra"""
-    deliverable = db.query(models.ProjectDeliverable).filter(
-        models.ProjectDeliverable.id == deliverable_id,
-        models.ProjectDeliverable.project_id == project_id
-    ).first()
-
-    if not deliverable:
-        raise HTTPException(status_code=404, detail="Item bukti pengerjaan tidak ditemukan.")
-
-    if payload.status not in ["APPROVED", "REVISION_REQUESTED"]:
-        raise HTTPException(status_code=400, detail="Status peninjauan tidak sah. Gunakan 'APPROVED' atau 'REVISION_REQUESTED'.")
-
-    # Update status pengerjaan berdasarkan masukan Klien
+    deliverable = db.query(models.ProjectDeliverable).filter(models.ProjectDeliverable.id == deliverable_id, models.ProjectDeliverable.project_id == project_id).first()
+    if not deliverable: raise HTTPException(status_code=404)
     deliverable.status = payload.status
     deliverable.feedback = payload.feedback
 
-    # Hubungkan keputusan ke log aktivitas proyek utama
     project = db.query(models.Project).filter(models.Project.id == project_id).first()
     if project:
-        if payload.status == "APPROVED":
-            project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ✅ Klien menyetujui: {deliverable.title}"
-        else:
-            project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] ❌ Klien meminta revisi pada: {deliverable.title}"
-            if project.status == "MENUNGGU UAT":
-                project.status = "SEDANG DIKERJAKAN"
-
+        project.current_milestone = f"[{datetime.now().strftime('%d/%m %H:%M')}] " + ("✅ Disetujui: " if payload.status == "APPROVED" else "❌ Revisi: ") + deliverable.title
+        if payload.status != "APPROVED" and project.status == "MENUNGGU UAT":
+            project.status = "SEDANG DIKERJAKAN"
         db.commit()
-
-        # -------------------------------------------------------------------------
-        # PUSH REAL-TIME PEMBERITAHUAN: Kabari Mitra perihal putusan revisi/approve
-        # -------------------------------------------------------------------------
         if project.mitra_id:
-            status_text = "DISETUJUI ✅" if payload.status == "APPROVED" else "DITOLAK ❌ (BUTUH REVISI)"
             await notif_manager.send_personal_notification(
-                user_id=project.mitra_id,
-                title=f"STATUS BUKTI KERJA: {status_text}",
-                message=f"Klien telah mengevaluasi berkas '{deliverable.title}' untuk proyek: '{project.title}'.",
-                db=db
+                user_id=project.mitra_id, title=f"STATUS KERJA: {payload.status}",
+                message=f"Klien mengevaluasi '{deliverable.title}'.", db=db
             )
     else:
         db.commit()
-
     db.refresh(deliverable)
-    return {"status": "success", "message": f"Evaluasi untuk '{deliverable.title}' berhasil disimpan.", "data": deliverable}
+    return {"status": "success", "data": deliverable}
+
+# =========================================================================
+# 3. SISTEM PENAWARAN (BIDDING) - SISI KLIEN
+# =========================================================================
+@router.get("/projects/{project_id}/bids")
+def get_project_bids(project_id: str, db: Session = Depends(get_db)):
+    bids = db.query(models.ProjectBid).filter(models.ProjectBid.project_id == project_id).all()
+    
+    result = []
+    for b in bids:
+        mitra_prof = db.query(models.MitraProfile).filter(models.MitraProfile.user_id == b.mitra_id).first()
+        result.append({
+            "id": b.id,
+            "mitra_id": b.mitra_id,
+            "mitra_name": b.mitra.name,
+            "rating": float(mitra_prof.rating) if mitra_prof else 0.0,
+            "projects_completed": mitra_prof.projects_completed if mitra_prof else 0,
+            "bid_amount": float(b.bid_amount),
+            "cover_letter": b.cover_letter,
+            "status": b.status,
+            "created_at": b.created_at.strftime("%d %b %Y %H:%M")
+        })
+    return result
+
+@router.post("/bids/{bid_id}/accept")
+async def accept_project_bid(bid_id: str, db: Session = Depends(get_db)):
+    """Klien menerima tawaran dengan penyesuaian Delta Escrow"""
+    bid = db.query(models.ProjectBid).filter(models.ProjectBid.id == bid_id).first()
+    if not bid:
+        raise HTTPException(status_code=404, detail="Data penawaran tidak ditemukan.")
+        
+    project = db.query(models.Project).filter(models.Project.id == bid.project_id).first()
+    if project.status != "OPEN":
+        raise HTTPException(status_code=400, detail="Proyek sudah ditutup atau sedang dikerjakan.")
+
+    client_wallet = db.query(models.Wallet).filter(models.Wallet.user_id == project.client_id).first()
+    selisih_harga = Decimal(str(bid.bid_amount)) - project.budget
+
+    if selisih_harga > 0:
+        if client_wallet.balance < selisih_harga:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Saldo tidak cukup. Butuh tambahan Rp {selisih_harga:,.0f} untuk tawaran ini."
+            )
+        client_wallet.balance -= selisih_harga
+        client_wallet.escrow_balance += selisih_harga
+        db.add(models.Transaction(
+            id=f"TRX-ESC-ADD-{uuid.uuid4().hex[:4].upper()}", 
+            user_id=project.client_id, project_id=project.id,
+            transaction_type="PENYESUAIAN ESCROW (NAIK)", amount=-selisih_harga, status="SUCCESS"
+        ))
+    elif selisih_harga < 0:
+        refund_amount = abs(selisih_harga)
+        client_wallet.escrow_balance -= refund_amount
+        client_wallet.balance += refund_amount
+        db.add(models.Transaction(
+            id=f"TRX-ESC-REF-{uuid.uuid4().hex[:4].upper()}", 
+            user_id=project.client_id, project_id=project.id,
+            transaction_type="PENGEMBALIAN ESCROW (TURUN)", amount=refund_amount, status="SUCCESS"
+        ))
+
+    bid.status = "ACCEPTED"
+    db.query(models.ProjectBid).filter(
+        models.ProjectBid.project_id == project.id, 
+        models.ProjectBid.id != bid_id
+    ).update({"status": "REJECTED"})
+
+    project.mitra_id = bid.mitra_id
+    project.budget = bid.bid_amount 
+    project.status = "SEDANG DIKERJAKAN"
+    project.current_milestone = f"Kontrak resmi dimulai dengan {bid.mitra.name}."
+
+    default_milestones = [
+        {"title": "Tahap 1: Desain & Arsitektur", "desc": "Penyerahan rancangan."},
+        {"title": "Tahap 2: Implementasi Sistem", "desc": "Pengembangan fungsionalitas inti."},
+        {"title": "Tahap 3: Hasil Akhir & Dokumentasi", "desc": "Penyelesaian."}
+    ]
+    for m in default_milestones:
+        db.add(models.ProjectDeliverable(
+            project_id=project.id, title=m["title"], description=m["desc"], status="PENDING"
+        ))
+
+    db.commit()
+    await notif_manager.send_personal_notification(
+        user_id=bid.mitra_id, title="🎉 PENAWARAN DITERIMA!",
+        message=f"Klien menerima penawaran Anda untuk proyek '{project.title}'.", db=db
+    )
+    return {"status": "success"}

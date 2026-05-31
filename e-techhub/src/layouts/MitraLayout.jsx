@@ -21,10 +21,10 @@ export default function MitraLayout() {
 
   const menuItems = [
     { name: 'HUB UTAMA', path: '/mitra/dashboard', icon: '⚡' },
-    { name: 'PROYEK & KONTRAK', path: '/mitra/projects', icon: '📝' },
     { name: 'BURSA KERJA', path: '/mitra/jobs', icon: '🎯' },
     { name: 'SALDO ESCROW', path: '/mitra/wallet', icon: '💵' },
     { name: 'INBOX', path: '/mitra/MitraInbox', icon: '✉️' },
+      { name: 'WORKSPACE', path: '/mitra/workspace', icon: '🛠️' },
   ];
 
   return (

@@ -1,3 +1,4 @@
+// Ganti 127.0.0.1 menjadi IP jaringan lokal Anda saat testing di HP
 const BASE_URL = 'http://127.0.0.1:8000/api';
 
 // === ADMIN ===
@@ -457,3 +458,43 @@ export const getClientProjectsHistory = async (clientId) => {
   if (!response.ok) throw new Error('Gagal memuat riwayat proyek klien');
   return response.json();
 };
+
+
+// ==========================================
+// API SISTEM PENAWARAN (BIDDING)
+// ==========================================
+
+// Mitra mengirimkan proposal penawaran
+export const submitProjectBid = async (projectId, payload) => {
+  const response = await fetch(`${BASE_URL}/mitra/jobs/${projectId}/bid`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal mengirim penawaran.');
+  return data;
+};
+
+// Klien melihat daftar penawaran masuk
+export const getProjectBids = async (clientId, projectId) => {
+  const response = await fetch(`${BASE_URL}/client/projects/${projectId}/bids`);
+  if (!response.ok) throw new Error('Gagal memuat daftar penawaran.');
+  return response.json();
+};
+
+// Klien menerima penawaran
+export const acceptProjectBid = async (clientId, bidId) => {
+  const response = await fetch(`${BASE_URL}/client/bids/${bidId}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' }
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.detail || 'Gagal menerima penawaran.');
+  return data;
+};
+
+// ==========================================
+// ALIAS UNTUK KOMPONEN BARU
+// ==========================================
+export const getDeliverables = getProjectDeliverables;
